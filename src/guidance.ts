@@ -32,6 +32,8 @@ export type GuidanceSnapshot = {
   routePreview?: RoutePreviewPoint[];
   sideRoadBranches?: SideRoadPreviewBranch[];
   showSideRoads?: boolean;
+  showSpeed?: boolean;
+  speedLabel?: string;
 };
 
 export type PositionSample = {
@@ -96,11 +98,12 @@ export function makeGuidanceSnapshot(
     primary: offRoute ? "REROUTE NEEDED" : `${stepArrow(step)} ${formatDistance(distanceToStepMeters, unitSystem)}  ${step.shortInstruction}`,
     secondary: offRoute ? "Pull over or tap Re-route" : step.instruction,
     tertiary: `${formatDistance(remainingMeters, unitSystem)} left | ETA ${formatEta(remainingSeconds)}`,
-    hint: `${formatSpeed(position.speedMetersPerSecond, unitSystem)} | ${Math.round(heading)} deg | ${soon ? "prepare" : "cruise"}`,
+    hint: `${Math.round(heading)} deg | ${soon ? "prepare" : "cruise"}`,
     arrow: stepArrow(step),
     nextStepIndex,
     distanceToStepMeters,
     offRoute,
+    speedLabel: formatSpeed(position.speedMetersPerSecond, unitSystem),
     maneuverType: step.maneuverType,
     modifier: step.modifier,
     roadName: step.roadName,

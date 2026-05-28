@@ -310,16 +310,16 @@ function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSna
 
   context.textAlign = "left";
   context.fillStyle = "#ffffff";
-  context.font = "bold 54px system-ui, sans-serif";
+  context.font = "bold 42px system-ui, sans-serif";
   context.fillText(formatPrimaryDistance(snapshot.primary), 294, 108);
 
   context.fillStyle = "#ffffff";
-  context.font = "bold 31px system-ui, sans-serif";
+  context.font = "bold 25px system-ui, sans-serif";
   context.fillText(formatPrimaryAction(snapshot.primary, snapshot.arrow), 294, 150);
 
   context.fillStyle = "#b8c3c1";
-  context.font = "24px system-ui, sans-serif";
-  context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 22), 294, 188);
+  context.font = "19px system-ui, sans-serif";
+  context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 28), 294, 184);
 
   context.strokeStyle = "rgba(241, 198, 75, 0.75)";
   context.lineWidth = 2;
@@ -329,7 +329,7 @@ function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSna
   context.stroke();
 
   context.fillStyle = "#f1c64b";
-  context.font = "bold 23px system-ui, sans-serif";
+  context.font = "bold 18px system-ui, sans-serif";
   context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 26), 294, 244);
 }
 
@@ -343,25 +343,26 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
   drawVehicleMarker(context, GLASS_WIDTH / 2, 244);
 
   context.fillStyle = "rgba(0, 0, 0, 0.52)";
-  roundRect(context, 22, 20, 168, 62, 14);
+  roundRect(context, 22, 20, 150, 54, 10);
   context.fill();
 
   context.fillStyle = "#ffffff";
-  context.font = "bold 34px system-ui, sans-serif";
+  context.font = "bold 28px system-ui, sans-serif";
   context.textAlign = "left";
-  context.fillText(formatPrimaryDistance(snapshot.primary), 38, 62);
+  context.fillText(formatPrimaryDistance(snapshot.primary), 38, 56);
 
   context.fillStyle = "rgba(0, 0, 0, 0.46)";
-  roundRect(context, 306, 22, 234, 60, 14);
+  roundRect(context, 314, 22, 216, 54, 10);
   context.fill();
 
   context.fillStyle = "#f1c64b";
-  context.font = "bold 24px system-ui, sans-serif";
-  context.fillText(formatPrimaryAction(snapshot.secondary, snapshot.arrow), 324, 58);
+  context.font = "bold 20px system-ui, sans-serif";
+  context.fillText(formatPrimaryAction(snapshot.secondary, snapshot.arrow), 328, 54);
 
   context.fillStyle = "#b8c3c1";
-  context.font = "17px system-ui, sans-serif";
-  context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 22), 324, 78);
+  context.font = "15px system-ui, sans-serif";
+  context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 24), 328, 72);
+  drawSpeedReadout(context, snapshot, 456, 232, "right");
 }
 
 function drawIdleImage(
@@ -390,18 +391,18 @@ function drawIdleImage(
 
 function drawMenuChrome(context: CanvasRenderingContext2D, title: string, hint: string): void {
   context.fillStyle = "rgba(241, 198, 75, 0.92)";
-  context.fillRect(0, 0, GLASS_WIDTH, 5);
+  context.fillRect(0, 0, GLASS_WIDTH, 4);
 
   context.fillStyle = "#f1c64b";
-  context.font = "bold 26px system-ui, sans-serif";
+  context.font = "bold 21px system-ui, sans-serif";
   context.textAlign = "left";
-  context.fillText(trimImageLine(title.toUpperCase(), 18), 32, 42);
+  context.fillText(trimImageLine(title.toUpperCase(), 22), 32, 36);
 
   if (hint) {
     context.fillStyle = "#b8c3c1";
-    context.font = "bold 17px system-ui, sans-serif";
+    context.font = "bold 14px system-ui, sans-serif";
     context.textAlign = "right";
-    context.fillText(trimImageLine(hint.replace(" | ", "  "), 28), 544, 42);
+    context.fillText(trimImageLine(hint.replace(" | ", "  "), 34), 544, 36);
   }
 }
 
@@ -416,12 +417,12 @@ function drawHomeMenu(
   drawStatusPill(context, ready ? "READY" : "WAIT", 32, 68, ready ? "#6ee1c7" : "#f1c64b");
 
   context.fillStyle = "#ffffff";
-  context.font = "bold 43px system-ui, sans-serif";
+  context.font = "bold 32px system-ui, sans-serif";
   context.textAlign = "left";
-  context.fillText(trimImageLine(primary, 20), 32, 142);
+  context.fillText(trimImageLine(primary, 24), 32, 132);
 
-  drawMenuActionRow(context, 32, 172, secondary, "CLICK");
-  drawMenuActionRow(context, 32, 224, tertiary, ready ? "PHONE" : "INFO");
+  drawMenuActionRow(context, 32, 168, secondary, "CLICK");
+  drawMenuActionRow(context, 32, 222, tertiary, ready ? "PHONE" : "INFO");
 
   if (!hint) {
     return;
@@ -440,14 +441,14 @@ function drawFavoriteMenu(
   drawStepRail(context, isStart ? 0 : 1);
 
   context.fillStyle = "#b8c3c1";
-  context.font = "bold 22px system-ui, sans-serif";
+  context.font = "bold 17px system-ui, sans-serif";
   context.textAlign = "right";
   context.fillText(secondary, 544, 86);
 
   context.fillStyle = "#ffffff";
-  context.font = "bold 42px system-ui, sans-serif";
+  context.font = "bold 30px system-ui, sans-serif";
   context.textAlign = "left";
-  wrapMenuText(context, primary, 104, 122, 400, 44, 2);
+  wrapMenuText(context, primary, 104, 122, 404, 34, 2);
 
   drawMenuActionRow(context, 104, 218, tertiary, "CLICK");
   drawTinyHint(context, hint, 104, 274);
@@ -464,15 +465,15 @@ function drawRouteReadyMenu(
 
   const parts = secondary.split(" -> ");
   context.fillStyle = "#ffffff";
-  context.font = "bold 31px system-ui, sans-serif";
+  context.font = "bold 25px system-ui, sans-serif";
   context.textAlign = "left";
-  context.fillText(trimImageLine(parts[0] ?? "Start", 22), 104, 136);
+  context.fillText(trimImageLine(parts[0] ?? "Start", 27), 104, 136);
   context.fillStyle = "#b8c3c1";
-  context.font = "bold 24px system-ui, sans-serif";
+  context.font = "bold 18px system-ui, sans-serif";
   context.fillText("TO", 104, 172);
   context.fillStyle = "#ffffff";
-  context.font = "bold 31px system-ui, sans-serif";
-  context.fillText(trimImageLine(parts[1] ?? "Destination", 22), 104, 210);
+  context.font = "bold 25px system-ui, sans-serif";
+  context.fillText(trimImageLine(parts[1] ?? "Destination", 27), 104, 210);
 
   drawMenuActionRow(context, 104, 238, tertiary, "SWIPE");
 }
@@ -485,13 +486,13 @@ function drawSettingsMenu(
   hint: string
 ): void {
   context.fillStyle = "#b8c3c1";
-  context.font = "bold 22px system-ui, sans-serif";
+  context.font = "bold 18px system-ui, sans-serif";
   context.textAlign = "left";
-  context.fillText(trimImageLine(primary, 24), 32, 96);
+  context.fillText(trimImageLine(primary, 30), 32, 96);
 
   context.fillStyle = "#ffffff";
-  context.font = "bold 46px system-ui, sans-serif";
-  context.fillText(trimImageLine(secondary, 18), 32, 164);
+  context.font = "bold 34px system-ui, sans-serif";
+  context.fillText(trimImageLine(secondary, 22), 32, 158);
 
   drawMenuActionRow(context, 32, 214, tertiary, "CLICK");
   drawTinyHint(context, hint, 32, 270);
@@ -506,12 +507,12 @@ function drawStatusPill(
 ): void {
   context.strokeStyle = color;
   context.lineWidth = 2;
-  roundRect(context, x, y, 136, 36, 8);
+  roundRect(context, x, y, 118, 32, 7);
   context.stroke();
   context.fillStyle = color;
-  context.font = "bold 20px system-ui, sans-serif";
+  context.font = "bold 16px system-ui, sans-serif";
   context.textAlign = "center";
-  context.fillText(trimImageLine(label, 12), x + 68, y + 25);
+  context.fillText(trimImageLine(label, 12), x + 59, y + 22);
 }
 
 function drawMenuActionRow(
@@ -523,21 +524,21 @@ function drawMenuActionRow(
 ): void {
   context.strokeStyle = "rgba(184, 195, 193, 0.28)";
   context.lineWidth = 1.5;
-  roundRect(context, x, y, 420, 40, 8);
+  roundRect(context, x, y, 420, 36, 7);
   context.stroke();
 
   context.fillStyle = "rgba(241, 198, 75, 0.16)";
-  roundRect(context, x + 10, y + 8, 72, 24, 6);
+  roundRect(context, x + 10, y + 7, 66, 22, 5);
   context.fill();
   context.fillStyle = "#f1c64b";
-  context.font = "bold 14px system-ui, sans-serif";
+  context.font = "bold 12px system-ui, sans-serif";
   context.textAlign = "center";
-  context.fillText(badge, x + 46, y + 25);
+  context.fillText(badge, x + 43, y + 23);
 
   context.fillStyle = "#ffffff";
-  context.font = "bold 21px system-ui, sans-serif";
+  context.font = "bold 17px system-ui, sans-serif";
   context.textAlign = "left";
-  context.fillText(trimImageLine(label, 26), x + 98, y + 27);
+  context.fillText(trimImageLine(label, 32), x + 92, y + 24);
 }
 
 function drawTinyHint(context: CanvasRenderingContext2D, hint: string, x: number, y: number): void {
@@ -546,9 +547,9 @@ function drawTinyHint(context: CanvasRenderingContext2D, hint: string, x: number
   }
 
   context.fillStyle = "#b8c3c1";
-  context.font = "bold 16px system-ui, sans-serif";
+  context.font = "bold 13px system-ui, sans-serif";
   context.textAlign = "left";
-  context.fillText(trimImageLine(hint.replace(" | ", "  "), 36), x, y);
+  context.fillText(trimImageLine(hint.replace(" | ", "  "), 42), x, y);
 }
 
 function drawStepRail(context: CanvasRenderingContext2D, activeIndex: number): void {
@@ -621,13 +622,36 @@ function wrapMenuText(
 
 function drawHudHeader(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
   context.fillStyle = "rgba(241, 198, 75, 0.92)";
-  context.fillRect(0, 0, GLASS_WIDTH, 6);
+  context.fillRect(0, 0, GLASS_WIDTH, 4);
   context.fillStyle = "#b8c3c1";
-  context.font = "bold 19px system-ui, sans-serif";
+  context.font = "bold 15px system-ui, sans-serif";
   context.textAlign = "left";
-  context.fillText(snapshot.title.replace("Apex ", "").toUpperCase(), 32, 32);
+  context.fillText(snapshot.title.replace("Apex ", "").toUpperCase(), 32, 28);
+
+  if (snapshot.showSpeed) {
+    drawSpeedReadout(context, snapshot, 548, 28, "right");
+    return;
+  }
+
   context.textAlign = "right";
-  context.fillText(snapshot.hint.replace(" | ", "  "), 548, 32);
+  context.fillText(trimImageLine(snapshot.hint.replace(" | ", "  "), 32), 548, 28);
+}
+
+function drawSpeedReadout(
+  context: CanvasRenderingContext2D,
+  snapshot: GuidanceSnapshot,
+  x: number,
+  y: number,
+  align: CanvasTextAlign
+): void {
+  if (!snapshot.showSpeed || !snapshot.speedLabel) {
+    return;
+  }
+
+  context.fillStyle = "#ffffff";
+  context.font = "bold 20px system-ui, sans-serif";
+  context.textAlign = align;
+  context.fillText(snapshot.speedLabel, x, y);
 }
 
 function drawRouteCue(

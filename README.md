@@ -22,6 +22,8 @@ guidance tuned for motorcycle and spirited car use.
 - Supports two G2 guidance styles: arrow prompts for glanceable next-turn
   riding, and a phone-rendered map HUD that sends a forward route preview to
   the glasses.
+- Shows current speed during active guidance when the Speed display setting is
+  enabled.
 - Supports glasses/ring input:
   - Startup screen: click opens Choose Favorites when favorites are available.
   - Favorite picker: swipe up/down cycles saved places, click selects the

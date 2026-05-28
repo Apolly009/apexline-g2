@@ -12,6 +12,7 @@ import {
   fetchDrivingRoute,
   formatDistance,
   formatEta,
+  formatSpeed,
   reverseGeocodePlace,
   searchPlaces
 } from "./navigation";
@@ -22,6 +23,7 @@ type AppState = {
   unitSystem: UnitSystem;
   guidanceView: "arrows" | "map";
   showSideRoads: boolean;
+  showSpeed: boolean;
   activeSearchField: "origin" | "destination" | null;
   bridgeConnected: boolean;
   locating: boolean;
@@ -64,12 +66,14 @@ type GlassAction = "press" | "double" | "up" | "down" | "long";
 const FAVORITES_STORAGE_KEY = "apexline-favorites";
 const UNIT_SYSTEM_STORAGE_KEY = "apexline-unit-system";
 const SIDE_ROADS_STORAGE_KEY = "apexline-side-roads";
+const SPEED_DISPLAY_STORAGE_KEY = "apexline-speed-display";
 
 const state: AppState = {
   mode: "motorcycle",
   unitSystem: loadUnitSystem(),
   guidanceView: "arrows",
   showSideRoads: loadSideRoadsEnabled(),
+  showSpeed: loadSpeedDisplayEnabled(),
   activeSearchField: null,
   bridgeConnected: false,
   locating: false,
@@ -193,6 +197,7 @@ function devDebugSnapshot(): Record<string, unknown> {
     mode: state.mode,
     unitSystem: state.unitSystem,
     showSideRoads: state.showSideRoads,
+    showSpeed: state.showSpeed,
     settingsIndex: state.glassesSettingsIndex,
     startFavoriteIndex: state.glassesStartFavoriteIndex,
     destinationFavoriteIndex: state.glassesDestinationFavoriteIndex,
@@ -243,6 +248,11 @@ function applyLaunchOptions(): void {
   if (params.has("sideRoads")) {
     state.showSideRoads = params.get("sideRoads") !== "0";
     saveSideRoadsEnabled();
+  }
+
+  if (params.has("speed")) {
+    state.showSpeed = params.get("speed") !== "0";
+    saveSpeedDisplayEnabled();
   }
 
   if (params.has("devTools")) {
@@ -425,6 +435,10 @@ function renderSettingsMenu(): string {
           <input type="checkbox" data-side-roads ${state.showSideRoads ? "checked" : ""} />
           <span>Intersection side roads</span>
         </label>
+        <label class="setting-toggle">
+          <input type="checkbox" data-speed-display ${state.showSpeed ? "checked" : ""} />
+          <span>Speed on glasses</span>
+        </label>
       </div>
     </div>
   `;
@@ -603,12 +617,13 @@ function renderFavoriteToggle(place: PlaceResult | null, target: "origin" | "des
 }
 
 function renderStats(): string {
+  const speedLabel = formatCurrentSpeed();
   if (!state.route) {
     return `
       <div class="stat"><span>Status</span><strong>${state.position ? "Location ready" : "No location"}</strong></div>
       <div class="stat"><span>Source</span><strong>${locationSourceLabel()}</strong></div>
       <div class="stat"><span>Mode</span><strong>${state.mode === "motorcycle" ? "Moto" : "Drive"}</strong></div>
-      <div class="stat"><span>Route</span><strong>Not built</strong></div>
+      <div class="stat"><span>${state.navigating ? "Speed" : "Route"}</span><strong>${state.navigating ? speedLabel : "Not built"}</strong></div>
     `;
   }
 
@@ -616,7 +631,7 @@ function renderStats(): string {
   return `
     <div class="stat"><span>Total</span><strong>${formatDistance(state.route.distanceMeters, state.unitSystem)}</strong></div>
     <div class="stat"><span>ETA</span><strong>${formatEta(state.route.durationSeconds)}</strong></div>
-    <div class="stat"><span>Source</span><strong>${locationSourceLabel()}</strong></div>
+    <div class="stat"><span>${state.navigating ? "Speed" : "Source"}</span><strong>${state.navigating ? speedLabel : locationSourceLabel()}</strong></div>
     <div class="stat"><span>Next</span><strong>${nextStep ? escapeHtml(nextStep.shortInstruction) : "Done"}</strong></div>
     <p class="destination">${escapeHtml(state.route.destinationLabel)}</p>
   `;
@@ -647,7 +662,7 @@ function renderGuidancePanel(): string {
       <div>
         <span>Map view</span>
         <strong>${escapeHtml(snapshot.primary)}</strong>
-        <p>${escapeHtml(snapshot.tertiary)}</p>
+        <p>${escapeHtml(state.showSpeed ? `${snapshot.speedLabel ?? formatCurrentSpeed()} | ${snapshot.tertiary}` : snapshot.tertiary)}</p>
       </div>
     `;
   }
@@ -657,7 +672,7 @@ function renderGuidancePanel(): string {
     <div>
       <span>Arrow view</span>
       <strong>${escapeHtml(snapshot.primary)}</strong>
-      <p>${escapeHtml(snapshot.secondary)}</p>
+      <p>${escapeHtml(state.showSpeed ? `${snapshot.speedLabel ?? formatCurrentSpeed()} | ${snapshot.secondary}` : snapshot.secondary)}</p>
     </div>
   `;
 }
@@ -708,6 +723,13 @@ function bindEvents(): void {
   document.querySelector<HTMLInputElement>("[data-side-roads]")?.addEventListener("change", (event) => {
     state.showSideRoads = (event.target as HTMLInputElement).checked;
     saveSideRoadsEnabled();
+    void updateGlass();
+    render();
+  });
+
+  document.querySelector<HTMLInputElement>("[data-speed-display]")?.addEventListener("change", (event) => {
+    state.showSpeed = (event.target as HTMLInputElement).checked;
+    saveSpeedDisplayEnabled();
     void updateGlass();
     render();
   });
@@ -1059,6 +1081,18 @@ function loadSideRoadsEnabled(): boolean {
 
 function saveSideRoadsEnabled(): void {
   window.localStorage.setItem(SIDE_ROADS_STORAGE_KEY, state.showSideRoads ? "1" : "0");
+}
+
+function loadSpeedDisplayEnabled(): boolean {
+  return window.localStorage.getItem(SPEED_DISPLAY_STORAGE_KEY) !== "0";
+}
+
+function saveSpeedDisplayEnabled(): void {
+  window.localStorage.setItem(SPEED_DISPLAY_STORAGE_KEY, state.showSpeed ? "1" : "0");
+}
+
+function formatCurrentSpeed(): string {
+  return formatSpeed(state.position?.speedMetersPerSecond ?? null, state.unitSystem);
 }
 
 function scheduleSearch(): void {
@@ -1650,7 +1684,8 @@ function currentSnapshot(): GuidanceSnapshot {
 function withDisplayPreferences(snapshot: GuidanceSnapshot): GuidanceSnapshot {
   return {
     ...snapshot,
-    showSideRoads: state.showSideRoads
+    showSideRoads: state.showSideRoads,
+    showSpeed: state.showSpeed
   };
 }
 
@@ -2006,6 +2041,14 @@ function glassesSettings(): Array<{ label: string; value: () => string; toggle: 
       toggle: () => {
         state.showSideRoads = !state.showSideRoads;
         saveSideRoadsEnabled();
+      }
+    },
+    {
+      label: "Speed",
+      value: () => state.showSpeed ? "Shown while driving" : "Hidden",
+      toggle: () => {
+        state.showSpeed = !state.showSpeed;
+        saveSpeedDisplayEnabled();
       }
     }
   ];
