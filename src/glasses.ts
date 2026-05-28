@@ -13,7 +13,7 @@ import {
 import type { GuidanceSnapshot } from "./guidance";
 
 type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>;
-type InputHandler = (action: "press" | "double" | "up" | "down") => void;
+type InputHandler = (action: "press" | "double" | "up" | "down" | "long") => void;
 
 const MAIN_CONTAINER_ID = 1;
 const MAIN_CONTAINER_NAME = "main";
@@ -38,13 +38,22 @@ export class GlassDisplay {
       this.bridge = await withTimeout(waitForEvenAppBridge(), 2500);
       this.bridge.onEvenHubEvent((event) => {
         const eventType = event.textEvent?.eventType ?? event.listEvent?.eventType ?? event.sysEvent?.eventType;
-        if (eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+        const normalizedEventType = OsEventTypeList.fromJson(eventType) ?? eventType;
+        const rawEventType = [
+          (event as { textEvent?: { eventType?: unknown } }).textEvent?.eventType,
+          (event as { listEvent?: { eventType?: unknown } }).listEvent?.eventType,
+          (event as { sysEvent?: { eventType?: unknown } }).sysEvent?.eventType
+        ].map((value) => String(value ?? "")).join(" ");
+
+        if (/LONG|HOLD/.test(rawEventType.toUpperCase())) {
+          onInput("long");
+        } else if (normalizedEventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
           onInput("double");
-        } else if (eventType === OsEventTypeList.SCROLL_TOP_EVENT) {
+        } else if (normalizedEventType === OsEventTypeList.SCROLL_TOP_EVENT) {
           onInput("up");
-        } else if (eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
+        } else if (normalizedEventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
           onInput("down");
-        } else if (eventType === OsEventTypeList.CLICK_EVENT || eventType == null) {
+        } else if (normalizedEventType === OsEventTypeList.CLICK_EVENT || eventType == null) {
           onInput("press");
         }
       });
@@ -327,7 +336,6 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
   context.fillStyle = "#b8c3c1";
   context.font = "17px system-ui, sans-serif";
   context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 22), 324, 78);
-
 }
 
 function drawIdleImage(
@@ -341,57 +349,248 @@ function drawIdleImage(
   const secondary = snapshot?.secondary ?? lines[2] ?? "Waiting for route";
   const tertiary = snapshot?.tertiary ?? snapshot?.hint ?? "";
 
-  const routePoints: Array<[number, number]> = [
-    [78, 236],
-    [150, 200],
-    [220, 208],
-    [286, 154],
-    [364, 122],
-    [474, 58]
-  ];
+  const chromeHint = title === "Choose Start" || title === "Choose Finish" ? "" : snapshot?.hint ?? "";
+  drawMenuChrome(context, title, chromeHint);
+  if (title === "Choose Start" || title === "Choose Finish") {
+    drawFavoriteMenu(context, title, primary, secondary, tertiary, snapshot?.hint ?? "");
+  } else if (title === "Route Ready") {
+    drawRouteReadyMenu(context, primary, secondary, tertiary);
+  } else if (title === "Settings") {
+    drawSettingsMenu(context, primary, secondary, tertiary, snapshot?.hint ?? "");
+  } else {
+    drawHomeMenu(context, primary, secondary, tertiary, snapshot?.hint ?? "");
+  }
+}
 
-  context.strokeStyle = "rgba(110, 225, 199, 0.16)";
-  context.lineWidth = 36;
-  drawPath(context, routePoints);
-  context.strokeStyle = "rgba(241, 198, 75, 0.3)";
-  context.lineWidth = 10;
-  drawPath(context, routePoints);
-
-  context.fillStyle = "#6ee1c7";
-  context.beginPath();
-  context.arc(routePoints[0][0], routePoints[0][1], 11, 0, Math.PI * 2);
-  context.fill();
+function drawMenuChrome(context: CanvasRenderingContext2D, title: string, hint: string): void {
+  context.fillStyle = "rgba(241, 198, 75, 0.92)";
+  context.fillRect(0, 0, GLASS_WIDTH, 5);
 
   context.fillStyle = "#f1c64b";
-  context.beginPath();
-  context.moveTo(482, 42);
-  context.lineTo(512, 76);
-  context.lineTo(474, 68);
-  context.closePath();
-  context.fill();
-
-  context.fillStyle = "rgba(0, 0, 0, 0.62)";
-  roundRect(context, 34, 28, 310, 76, 14);
-  context.fill();
-
-  context.fillStyle = "#f1c64b";
-  context.font = "bold 38px system-ui, sans-serif";
+  context.font = "bold 26px system-ui, sans-serif";
   context.textAlign = "left";
-  context.fillText(trimImageLine(title, 14), 52, 78);
+  context.fillText(trimImageLine(title.toUpperCase(), 18), 32, 42);
+
+  if (hint) {
+    context.fillStyle = "#b8c3c1";
+    context.font = "bold 17px system-ui, sans-serif";
+    context.textAlign = "right";
+    context.fillText(trimImageLine(hint.replace(" | ", "  "), 28), 544, 42);
+  }
+}
+
+function drawHomeMenu(
+  context: CanvasRenderingContext2D,
+  primary: string,
+  secondary: string,
+  tertiary: string,
+  hint: string
+): void {
+  const ready = /ready/i.test(primary);
+  drawStatusPill(context, ready ? "READY" : "WAIT", 32, 68, ready ? "#6ee1c7" : "#f1c64b");
 
   context.fillStyle = "#ffffff";
-  context.font = "bold 30px system-ui, sans-serif";
-  context.fillText(trimImageLine(primary, 26), 52, 150);
+  context.font = "bold 43px system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillText(trimImageLine(primary, 20), 32, 142);
+
+  drawMenuActionRow(context, 32, 172, secondary, "CLICK");
+  drawMenuActionRow(context, 32, 224, tertiary, ready ? "PHONE" : "INFO");
+
+  if (!hint) {
+    return;
+  }
+}
+
+function drawFavoriteMenu(
+  context: CanvasRenderingContext2D,
+  title: string,
+  primary: string,
+  secondary: string,
+  tertiary: string,
+  hint: string
+): void {
+  const isStart = title === "Choose Start";
+  drawStepRail(context, isStart ? 0 : 1);
 
   context.fillStyle = "#b8c3c1";
-  context.font = "21px system-ui, sans-serif";
-  context.fillText(trimImageLine(secondary, 34), 52, 184);
+  context.font = "bold 22px system-ui, sans-serif";
+  context.textAlign = "right";
+  context.fillText(secondary, 544, 86);
 
-  if (tertiary) {
-    context.fillStyle = "rgba(110, 225, 199, 0.9)";
-    context.font = "bold 19px system-ui, sans-serif";
-    context.fillText(trimImageLine(tertiary, 34), 52, 260);
+  context.fillStyle = "#ffffff";
+  context.font = "bold 42px system-ui, sans-serif";
+  context.textAlign = "left";
+  wrapMenuText(context, primary, 104, 122, 400, 44, 2);
+
+  drawMenuActionRow(context, 104, 218, tertiary, "CLICK");
+  drawTinyHint(context, hint, 104, 274);
+}
+
+function drawRouteReadyMenu(
+  context: CanvasRenderingContext2D,
+  primary: string,
+  secondary: string,
+  tertiary: string
+): void {
+  drawStepRail(context, 2);
+  drawStatusPill(context, /ready/i.test(primary) ? "READY" : primary.toUpperCase(), 104, 70, "#6ee1c7");
+
+  const parts = secondary.split(" -> ");
+  context.fillStyle = "#ffffff";
+  context.font = "bold 31px system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillText(trimImageLine(parts[0] ?? "Start", 22), 104, 136);
+  context.fillStyle = "#b8c3c1";
+  context.font = "bold 24px system-ui, sans-serif";
+  context.fillText("TO", 104, 172);
+  context.fillStyle = "#ffffff";
+  context.font = "bold 31px system-ui, sans-serif";
+  context.fillText(trimImageLine(parts[1] ?? "Destination", 22), 104, 210);
+
+  drawMenuActionRow(context, 104, 238, tertiary, "SWIPE");
+}
+
+function drawSettingsMenu(
+  context: CanvasRenderingContext2D,
+  primary: string,
+  secondary: string,
+  tertiary: string,
+  hint: string
+): void {
+  context.fillStyle = "#b8c3c1";
+  context.font = "bold 22px system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillText(trimImageLine(primary, 24), 32, 96);
+
+  context.fillStyle = "#ffffff";
+  context.font = "bold 46px system-ui, sans-serif";
+  context.fillText(trimImageLine(secondary, 18), 32, 164);
+
+  drawMenuActionRow(context, 32, 214, tertiary, "CLICK");
+  drawTinyHint(context, hint, 32, 270);
+}
+
+function drawStatusPill(
+  context: CanvasRenderingContext2D,
+  label: string,
+  x: number,
+  y: number,
+  color: string
+): void {
+  context.strokeStyle = color;
+  context.lineWidth = 2;
+  roundRect(context, x, y, 136, 36, 8);
+  context.stroke();
+  context.fillStyle = color;
+  context.font = "bold 20px system-ui, sans-serif";
+  context.textAlign = "center";
+  context.fillText(trimImageLine(label, 12), x + 68, y + 25);
+}
+
+function drawMenuActionRow(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  label: string,
+  badge: string
+): void {
+  context.strokeStyle = "rgba(184, 195, 193, 0.28)";
+  context.lineWidth = 1.5;
+  roundRect(context, x, y, 420, 40, 8);
+  context.stroke();
+
+  context.fillStyle = "rgba(241, 198, 75, 0.16)";
+  roundRect(context, x + 10, y + 8, 72, 24, 6);
+  context.fill();
+  context.fillStyle = "#f1c64b";
+  context.font = "bold 14px system-ui, sans-serif";
+  context.textAlign = "center";
+  context.fillText(badge, x + 46, y + 25);
+
+  context.fillStyle = "#ffffff";
+  context.font = "bold 21px system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillText(trimImageLine(label, 26), x + 98, y + 27);
+}
+
+function drawTinyHint(context: CanvasRenderingContext2D, hint: string, x: number, y: number): void {
+  if (!hint) {
+    return;
   }
+
+  context.fillStyle = "#b8c3c1";
+  context.font = "bold 16px system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillText(trimImageLine(hint.replace(" | ", "  "), 36), x, y);
+}
+
+function drawStepRail(context: CanvasRenderingContext2D, activeIndex: number): void {
+  const steps: Array<[number, string]> = [
+    [86, "S"],
+    [148, "F"],
+    [210, "GO"]
+  ];
+
+  context.strokeStyle = "rgba(184, 195, 193, 0.32)";
+  context.lineWidth = 3;
+  context.beginPath();
+  context.moveTo(56, steps[0][0]);
+  context.lineTo(56, steps[2][0]);
+  context.stroke();
+
+  steps.forEach(([y, label], index) => {
+    const active = index <= activeIndex;
+    context.fillStyle = active ? "#f1c64b" : "#000000";
+    context.strokeStyle = active ? "#f1c64b" : "rgba(184, 195, 193, 0.48)";
+    context.lineWidth = 3;
+    context.beginPath();
+    context.arc(56, y, 17, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+    context.fillStyle = active ? "#000000" : "#b8c3c1";
+    context.font = "bold 13px system-ui, sans-serif";
+    context.textAlign = "center";
+    context.fillText(label, 56, y + 5);
+  });
+}
+
+function wrapMenuText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight: number,
+  maxLines: number
+): void {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const testLine = line ? `${line} ${word}` : word;
+    if (context.measureText(testLine).width <= maxWidth || !line) {
+      line = testLine;
+      continue;
+    }
+
+    lines.push(line);
+    line = word;
+    if (lines.length === maxLines - 1) {
+      break;
+    }
+  }
+
+  if (line && lines.length < maxLines) {
+    lines.push(line);
+  }
+
+  lines.forEach((lineText, index) => {
+    const finalText = index === maxLines - 1 && words.join(" ").length > lines.join(" ").length
+      ? trimImageLine(lineText, 22)
+      : lineText;
+    context.fillText(finalText, x, y + index * lineHeight);
+  });
 }
 
 function drawHudHeader(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {

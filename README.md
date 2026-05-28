@@ -23,11 +23,16 @@ guidance tuned for motorcycle and spirited car use.
   riding, and a phone-rendered map HUD that sends a forward route preview to
   the glasses.
 - Supports glasses/ring input:
-  - Single press while navigating: toggle arrow and map view.
-  - Single press when a route or favorite is selected: start navigation.
-  - Swipe up/down while navigating: toggle Moto and Drive modes.
-  - Swipe up/down on the favorites screen: cycle saved destinations.
-  - Double press: pause navigation.
+  - Startup screen: click opens Choose Favorites when favorites are available.
+  - Favorite picker: swipe up/down cycles saved places, click selects the
+    start or finish, double press backs out.
+  - Route-ready screen: swipe down starts navigation.
+  - Active navigation: double press stops navigation and returns to the top
+    screen.
+  - Long press opens compact glasses settings for guidance view, ride mode,
+    units, and complex-intersection side roads when the host sends a long/hold
+    event. Current Even Hub SDK builds expose click, double-click, and scroll
+    events; long press still needs hardware validation.
 
 ## Run locally
 
