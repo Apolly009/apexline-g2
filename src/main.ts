@@ -32,6 +32,9 @@ type AppState = {
   navigating: boolean;
   devDriving: boolean;
   devDriveSpeedMetersPerSecond: number;
+  autoRerouting: boolean;
+  offRouteSampleCount: number;
+  lastAutoRerouteAt: number;
   startWhenRouteReady: boolean;
   routeRequestId: number;
   originQuery: string;
@@ -70,6 +73,9 @@ const state: AppState = {
   navigating: false,
   devDriving: false,
   devDriveSpeedMetersPerSecond: defaultDevDriveSpeed("motorcycle"),
+  autoRerouting: false,
+  offRouteSampleCount: 0,
+  lastAutoRerouteAt: 0,
   startWhenRouteReady: false,
   routeRequestId: 0,
   originQuery: "",
@@ -106,6 +112,9 @@ const DEV_TEST_DESTINATION: PlaceResult = {
     lon: 9.3041
   }
 };
+
+const AUTO_REROUTE_SAMPLE_THRESHOLD = 3;
+const AUTO_REROUTE_COOLDOWN_MS = 10000;
 
 const glassDisplay = new GlassDisplay();
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -248,7 +257,7 @@ function render(): void {
 
         <div class="actions">
           <button class="primary" id="start-nav" type="button" ${canStartNavigation() ? "" : "disabled"}>
-            ${state.navigating ? "Navigation running" : state.routing && state.startWhenRouteReady ? "Starting..." : "Start navigation"}
+            ${state.autoRerouting ? "Recalculating..." : state.navigating ? "Navigation running" : state.routing && state.startWhenRouteReady ? "Starting..." : "Start navigation"}
           </button>
           ${canCancelNavigation() ? `<button class="danger" id="cancel-route" type="button">${state.routing ? "Cancel route" : "Stop navigation"}</button>` : ""}
         </div>
@@ -818,6 +827,7 @@ function applyDestination(place: PlaceResult): void {
   state.searching = false;
   state.route = null;
   state.navigating = false;
+  state.offRouteSampleCount = 0;
   state.routeRequestId += 1;
 }
 
@@ -1100,8 +1110,7 @@ function applyGpsOrigin(position: GeolocationPosition): void {
   state.originSearching = false;
   state.locationStatus = `Phone GPS locked (${position.coords.accuracy.toFixed(0)} m accuracy).`;
   state.error = null;
-  state.routeRequestId += 1;
-  void ensureRouteReady();
+  handleOriginPositionChanged();
 }
 
 function applyGpsDestination(position: GeolocationPosition): void {
@@ -1121,6 +1130,22 @@ function applyGpsDestination(position: GeolocationPosition): void {
   state.locationStatus = `Destination set to current location (${position.coords.accuracy.toFixed(0)} m accuracy).`;
   state.error = null;
   void ensureRouteReady();
+}
+
+function handleOriginPositionChanged(): void {
+  if (!state.selectedPlace || state.routing) {
+    return;
+  }
+
+  if (state.navigating && state.route) {
+    evaluateAutoReroute();
+    return;
+  }
+
+  if (!state.route) {
+    state.routeRequestId += 1;
+    void ensureRouteReady();
+  }
 }
 
 function locationOptions(): PositionOptions {
@@ -1160,6 +1185,7 @@ async function ensureRouteReady(): Promise<void> {
       snapSimulatedGpsToRoute(route);
     }
     state.nextStepIndex = 0;
+    state.offRouteSampleCount = 0;
     state.locationStatus = "Route ready.";
     if (state.startWhenRouteReady) {
       state.startWhenRouteReady = false;
@@ -1173,6 +1199,81 @@ async function ensureRouteReady(): Promise<void> {
   } finally {
     if (state.routeRequestId === requestId) {
       state.routing = false;
+      render();
+    }
+  }
+}
+
+function evaluateAutoReroute(): void {
+  if (!state.route || !state.position || !state.selectedPlace || !state.navigating || state.routing) {
+    state.offRouteSampleCount = 0;
+    return;
+  }
+
+  const snapshot = makeGuidanceSnapshot(
+    state.route,
+    state.position,
+    state.mode,
+    state.nextStepIndex,
+    state.unitSystem
+  );
+  state.nextStepIndex = snapshot.nextStepIndex;
+
+  if (!snapshot.offRoute) {
+    state.offRouteSampleCount = 0;
+    return;
+  }
+
+  state.offRouteSampleCount += 1;
+  const now = Date.now();
+  if (
+    state.offRouteSampleCount >= AUTO_REROUTE_SAMPLE_THRESHOLD &&
+    now - state.lastAutoRerouteAt >= AUTO_REROUTE_COOLDOWN_MS
+  ) {
+    state.lastAutoRerouteAt = now;
+    void rerouteFromCurrentPosition();
+  }
+}
+
+async function rerouteFromCurrentPosition(): Promise<void> {
+  if (!state.position || !state.selectedPlace || state.routing) {
+    return;
+  }
+
+  const requestId = state.routeRequestId + 1;
+  state.routeRequestId = requestId;
+  state.routing = true;
+  state.autoRerouting = true;
+  state.startWhenRouteReady = false;
+  state.error = null;
+  state.locationStatus = "Off route. Recalculating route...";
+  render();
+
+  try {
+    const route = await fetchDrivingRoute(
+      state.position.coordinate,
+      state.selectedPlace.coordinate,
+      state.selectedPlace.label
+    );
+    if (state.routeRequestId !== requestId) {
+      return;
+    }
+
+    state.route = route;
+    state.nextStepIndex = 0;
+    state.navigating = true;
+    state.offRouteSampleCount = 0;
+    state.locationStatus = "Route recalculated.";
+    await updateGlass();
+  } catch (error) {
+    if (state.routeRequestId === requestId) {
+      state.error = `Reroute failed: ${toMessage(error)}`;
+      state.locationStatus = "Reroute failed. Staying on current route.";
+    }
+  } finally {
+    if (state.routeRequestId === requestId) {
+      state.routing = false;
+      state.autoRerouting = false;
       render();
     }
   }
@@ -1259,8 +1360,10 @@ function cancelNavigation(status = "Navigation stopped."): void {
   stopDevDriving();
   state.routeRequestId += 1;
   state.routing = false;
+  state.autoRerouting = false;
   state.navigating = false;
   state.startWhenRouteReady = false;
+  state.offRouteSampleCount = 0;
   state.error = null;
   state.locationStatus = status;
   void updateGlass();
@@ -1366,6 +1469,7 @@ function startNavigation(): void {
   state.startWhenRouteReady = false;
   state.navigating = true;
   state.nextStepIndex = 0;
+  state.offRouteSampleCount = 0;
   void updateGlass();
   render();
 }
@@ -1681,6 +1785,7 @@ function applyManualOrigin(place: PlaceResult): void {
   state.locationStatus = `Start set: ${place.label}`;
   state.route = null;
   state.navigating = false;
+  state.offRouteSampleCount = 0;
   state.routeRequestId += 1;
   state.error = null;
 }
@@ -1704,6 +1809,7 @@ function applySimulatedOrigin(origin: PlaceResult, destination: PlaceResult): vo
   state.locationStatus = `Simulated GPS at start: ${origin.label}`;
   state.route = null;
   state.navigating = false;
+  state.offRouteSampleCount = 0;
   state.routeRequestId += 1;
   state.error = null;
 }

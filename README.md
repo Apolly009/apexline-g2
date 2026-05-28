@@ -11,6 +11,7 @@ guidance tuned for motorcycle and spirited car use.
 - Shows an OpenStreetMap phone map through Leaflet, including click-to-pin
   destination selection.
 - Builds driving routes with OSRM.
+- Automatically recalculates the route after consecutive off-route GPS samples.
 - Watches the phone location with high accuracy enabled.
 - Provides map-based start selection when phone GPS is unavailable in the
   simulator or WebView.
