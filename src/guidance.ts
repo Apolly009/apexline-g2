@@ -1,5 +1,6 @@
 import {
   type Coordinate,
+  type IntersectionBranch,
   type RouteResult,
   type RouteStep,
   type TravelMode,
@@ -29,6 +30,7 @@ export type GuidanceSnapshot = {
   exitNumber?: number | null;
   turnAngleDegrees?: number;
   routePreview?: RoutePreviewPoint[];
+  sideRoadBranches?: SideRoadPreviewBranch[];
   showSideRoads?: boolean;
 };
 
@@ -41,6 +43,11 @@ export type PositionSample = {
 export type RoutePreviewPoint = {
   x: number;
   y: number;
+};
+
+export type SideRoadPreviewBranch = {
+  points: RoutePreviewPoint[];
+  roadClass: IntersectionBranch["roadClass"];
 };
 
 export function makeIdleSnapshot(status: string): GuidanceSnapshot {
@@ -99,7 +106,8 @@ export function makeGuidanceSnapshot(
     roadName: step.roadName,
     exitNumber: step.exitNumber,
     turnAngleDegrees: turnAngle,
-    routePreview: routePreview(route.geometry, position.coordinate, heading, modeLookaheadMeters(mode, position.speedMetersPerSecond))
+    routePreview: routePreview(route.geometry, position.coordinate, heading, lookaheadMeters),
+    sideRoadBranches: sideRoadPreview(step.intersectionBranches, position.coordinate, heading, lookaheadMeters)
   };
 }
 
@@ -269,6 +277,34 @@ function routePreview(
   }
 
   return simplifyPreview(preview);
+}
+
+function sideRoadPreview(
+  branches: IntersectionBranch[],
+  current: Coordinate,
+  headingDegrees: number,
+  lookaheadMeters: number
+): SideRoadPreviewBranch[] {
+  return branches
+    .map((branch) => {
+      const points = branch.points.map((point) => {
+        const local = localMeters(current, point);
+        const rotated = rotateForHeading(local.x, local.y, headingDegrees);
+        return {
+          x: clamp(rotated.x / 320, -1.15, 1.15),
+          y: clamp(rotated.y / Math.max(lookaheadMeters, 220), -0.2, 1.1)
+        };
+      });
+
+      return {
+        roadClass: branch.roadClass,
+        points: simplifyPreview(points)
+      };
+    })
+    .filter((branch) =>
+      branch.points.length > 1 &&
+      branch.points.some((point) => point.y >= -0.08 && point.y <= 1.04 && Math.abs(point.x) <= 1.02)
+    );
 }
 
 function nearestGeometryIndex(geometry: Coordinate[], current: Coordinate): number {

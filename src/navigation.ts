@@ -24,6 +24,12 @@ export type RouteStep = {
   bearingAfter: number;
   exitNumber: number | null;
   maneuverLocation: Coordinate;
+  intersectionBranches: IntersectionBranch[];
+};
+
+export type IntersectionBranch = {
+  points: Coordinate[];
+  roadClass: "major" | "medium" | "minor";
 };
 
 export type RouteResult = {
@@ -59,6 +65,52 @@ type OsrmStep = {
   name?: string;
   maneuver?: OsrmManeuver;
 };
+
+type OverpassNode = {
+  type: "node";
+  id: number;
+  lat: number;
+  lon: number;
+};
+
+type OverpassWay = {
+  type: "way";
+  id: number;
+  nodes?: number[];
+  tags?: {
+    highway?: string;
+    [key: string]: string | undefined;
+  };
+};
+
+type OverpassElement = OverpassNode | OverpassWay;
+
+type OverpassResponse = {
+  elements?: OverpassElement[];
+};
+
+type RouteBearings = {
+  incoming?: number;
+  outgoing?: number;
+};
+
+type CandidateIntersectionBranch = IntersectionBranch & {
+  bearingDegrees: number;
+  lengthMeters: number;
+  wayId: number;
+};
+
+type RoadWayGeometry = {
+  id: number;
+  points: Coordinate[];
+  roadClass: IntersectionBranch["roadClass"];
+};
+
+const SIDE_ROAD_RADIUS_METERS = 76;
+const SIDE_ROAD_MAX_LENGTH_METERS = 130;
+const SIDE_ROAD_ROUTE_MATCH_DEGREES = 28;
+const SIDE_ROAD_DUPLICATE_DEGREES = 10;
+const MAX_SIDE_ROAD_BRANCHES = 6;
 
 type OsrmResponse = {
   code?: string;
@@ -165,15 +217,19 @@ export async function fetchDrivingRoute(
     throw new Error(body.message || "No driving route found");
   }
 
+  const geometry = route.geometry?.coordinates?.map(([lon, lat]) => ({ lat, lon })) ?? [];
   const steps = route.legs?.flatMap((leg) => leg.steps ?? []) ?? [];
+  const routeSteps = steps.map(toRouteStep);
+  await attachIntersectionBranches(routeSteps, geometry, fetcher);
+
   return {
     origin,
     destination,
     destinationLabel,
     distanceMeters: route.distance ?? 0,
     durationSeconds: route.duration ?? 0,
-    geometry: route.geometry?.coordinates?.map(([lon, lat]) => ({ lat, lon })) ?? [],
-    steps: steps.map(toRouteStep)
+    geometry,
+    steps: routeSteps
   };
 }
 
@@ -291,8 +347,390 @@ function toRouteStep(step: OsrmStep, index: number): RouteStep {
     maneuverLocation: {
       lat: location[1],
       lon: location[0]
-    }
+    },
+    intersectionBranches: []
   };
+}
+
+async function attachIntersectionBranches(
+  steps: RouteStep[],
+  geometry: Coordinate[],
+  fetcher: Fetcher
+): Promise<void> {
+  const candidates = steps
+    .filter((step) => shouldFetchIntersectionBranches(step, geometry))
+    .slice(0, 18);
+
+  if (candidates.length === 0) {
+    return;
+  }
+
+  try {
+    const roadWays = await fetchIntersectionRoadWays(candidates, fetcher);
+    for (const step of candidates) {
+      step.intersectionBranches = intersectionBranchesForStep(step, geometry, roadWays);
+    }
+  } catch {
+    for (const step of candidates) {
+      step.intersectionBranches = [];
+    }
+  }
+}
+
+function shouldFetchIntersectionBranches(step: RouteStep, geometry: Coordinate[]): boolean {
+  const type = step.maneuverType;
+  if (type === "depart" || type === "arrive" || type === "continue") {
+    return false;
+  }
+
+  if (["turn", "end of road", "fork", "off ramp", "on ramp", "merge", "roundabout", "rotary"].includes(type)) {
+    return true;
+  }
+
+  if (type === "new name") {
+    return Math.abs(routeTurnAngleDegrees(geometry, step.maneuverLocation)) > 30;
+  }
+
+  return false;
+}
+
+async function fetchIntersectionRoadWays(
+  steps: RouteStep[],
+  fetcher: Fetcher
+): Promise<RoadWayGeometry[]> {
+  const wayQueries = steps.map((step) =>
+    `way(around:${SIDE_ROAD_RADIUS_METERS},${step.maneuverLocation.lat},${step.maneuverLocation.lon})` +
+    '["highway"]["highway"!~"^(footway|cycleway|path|steps|bridleway|pedestrian|service|track|corridor|elevator|platform|construction)$"];'
+  );
+  const query = [
+    "[out:json][timeout:6];",
+    "(",
+    ...wayQueries,
+    ");",
+    "(._;>;);",
+    "out body;"
+  ].join("");
+
+  const body = await fetchOverpass(query, fetcher);
+  const elements = body.elements ?? [];
+  const nodes = new Map<number, Coordinate>();
+  const ways: OverpassWay[] = [];
+
+  for (const element of elements) {
+    if (element.type === "node") {
+      nodes.set(element.id, { lat: element.lat, lon: element.lon });
+    } else if (element.type === "way" && shouldUseRoadWay(element)) {
+      ways.push(element);
+    }
+  }
+
+  const roadWays: RoadWayGeometry[] = [];
+
+  for (const way of ways) {
+    const roadClass = roadClassForHighway(way.tags?.highway);
+    const wayPoints = (way.nodes ?? [])
+      .map((nodeId) => nodes.get(nodeId))
+      .filter((point): point is Coordinate => Boolean(point));
+    if (wayPoints.length < 2) {
+      continue;
+    }
+
+    if (roadClass) {
+      roadWays.push({
+        id: way.id,
+        points: wayPoints,
+        roadClass
+      });
+    }
+  }
+
+  return roadWays;
+}
+
+function intersectionBranchesForStep(
+  step: RouteStep,
+  geometry: Coordinate[],
+  roadWays: RoadWayGeometry[]
+): IntersectionBranch[] {
+  const routeBearings = routeBearingsAtManeuver(geometry, step.maneuverLocation);
+  const branches: CandidateIntersectionBranch[] = [];
+
+  for (const roadWay of roadWays) {
+    branches.push(...branchesForWay(roadWay.id, roadWay.points, step.maneuverLocation, routeBearings, roadWay.roadClass));
+  }
+
+  return selectIntersectionBranches(branches).map(({ points, roadClass }) => ({ points, roadClass }));
+}
+
+async function fetchOverpass(query: string, fetcher: Fetcher): Promise<OverpassResponse> {
+  const endpoints = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter"
+  ];
+
+  for (const endpoint of endpoints) {
+    const response = await tryFetchOverpassEndpoint(endpoint, query, fetcher);
+    if (response.elements) {
+      return response;
+    }
+  }
+
+  return {};
+}
+
+async function tryFetchOverpassEndpoint(
+  endpoint: string,
+  query: string,
+  fetcher: Fetcher
+): Promise<OverpassResponse> {
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => {
+    controller.abort();
+  }, 6500);
+
+  try {
+    const response = await fetcher(endpoint, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({ data: query }),
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      return {};
+    }
+    return (await response.json()) as OverpassResponse;
+  } catch {
+    return {};
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
+}
+
+function shouldUseRoadWay(way: OverpassWay): boolean {
+  const highway = way.tags?.highway;
+  return Boolean(highway && roadClassForHighway(highway));
+}
+
+function roadClassForHighway(highway: string | undefined): IntersectionBranch["roadClass"] | null {
+  if (!highway) {
+    return null;
+  }
+
+  if (["motorway", "trunk", "primary", "secondary"].includes(highway)) {
+    return "major";
+  }
+
+  if (["tertiary", "unclassified"].includes(highway)) {
+    return "medium";
+  }
+
+  if (["residential", "living_street", "motorway_link", "trunk_link", "primary_link", "secondary_link", "tertiary_link"].includes(highway)) {
+    return "minor";
+  }
+
+  return null;
+}
+
+function branchesForWay(
+  wayId: number,
+  wayPoints: Coordinate[],
+  maneuver: Coordinate,
+  routeBearings: RouteBearings,
+  roadClass: IntersectionBranch["roadClass"] | null
+): CandidateIntersectionBranch[] {
+  if (!roadClass) {
+    return [];
+  }
+
+  let junctionIndex = -1;
+  let nearestMeters = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < wayPoints.length; index += 1) {
+    const distance = distanceMeters(maneuver, wayPoints[index]);
+    if (distance < nearestMeters) {
+      nearestMeters = distance;
+      junctionIndex = index;
+    }
+  }
+
+  if (junctionIndex < 0 || nearestMeters > 42) {
+    return [];
+  }
+
+  const branches: CandidateIntersectionBranch[] = [];
+  for (const direction of [-1, 1] as const) {
+    const points = collectBranchPoints(wayPoints, junctionIndex, direction, maneuver);
+    const lengthMeters = branchLengthMeters(points);
+    if (points.length < 2 || lengthMeters < 22) {
+      continue;
+    }
+
+    const bearing = bearingAlongBranch(points);
+    if (bearing == null || matchesRouteBearing(bearing, routeBearings)) {
+      continue;
+    }
+
+    branches.push({
+      wayId,
+      points,
+      roadClass,
+      bearingDegrees: bearing,
+      lengthMeters
+    });
+  }
+
+  return branches;
+}
+
+function collectBranchPoints(
+  wayPoints: Coordinate[],
+  junctionIndex: number,
+  direction: -1 | 1,
+  maneuver: Coordinate
+): Coordinate[] {
+  const points = [maneuver];
+  let previous = maneuver;
+  let traveledMeters = 0;
+
+  for (
+    let index = junctionIndex;
+    index >= 0 && index < wayPoints.length;
+    index += direction
+  ) {
+    const point = wayPoints[index];
+    const segmentMeters = distanceMeters(previous, point);
+    if (segmentMeters < 2) {
+      continue;
+    }
+
+    points.push(point);
+    traveledMeters += segmentMeters;
+    previous = point;
+    if (traveledMeters >= SIDE_ROAD_MAX_LENGTH_METERS) {
+      break;
+    }
+  }
+
+  return points;
+}
+
+function branchLengthMeters(points: Coordinate[]): number {
+  let length = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    length += distanceMeters(points[index - 1], points[index]);
+  }
+  return length;
+}
+
+function bearingAlongBranch(points: Coordinate[]): number | null {
+  const start = points[0];
+  for (let index = 1; index < points.length; index += 1) {
+    if (distanceMeters(start, points[index]) >= 14) {
+      return bearingDegrees(start, points[index]);
+    }
+  }
+  return points[1] ? bearingDegrees(start, points[1]) : null;
+}
+
+function matchesRouteBearing(bearing: number, routeBearings: RouteBearings): boolean {
+  return [routeBearings.incoming, routeBearings.outgoing].some((routeBearing) =>
+    routeBearing != null && angularDistanceDegrees(bearing, routeBearing) <= SIDE_ROAD_ROUTE_MATCH_DEGREES
+  );
+}
+
+function selectIntersectionBranches(branches: CandidateIntersectionBranch[]): CandidateIntersectionBranch[] {
+  const selected: CandidateIntersectionBranch[] = [];
+  const sorted = [...branches].sort((a, b) =>
+    roadClassScore(b.roadClass) - roadClassScore(a.roadClass) ||
+    b.lengthMeters - a.lengthMeters
+  );
+
+  for (const branch of sorted) {
+    const duplicate = selected.some((selectedBranch) =>
+      branch.wayId === selectedBranch.wayId &&
+      angularDistanceDegrees(branch.bearingDegrees, selectedBranch.bearingDegrees) <= SIDE_ROAD_DUPLICATE_DEGREES
+    );
+    if (!duplicate) {
+      selected.push(branch);
+    }
+    if (selected.length >= MAX_SIDE_ROAD_BRANCHES) {
+      break;
+    }
+  }
+
+  return selected.sort((a, b) => a.bearingDegrees - b.bearingDegrees);
+}
+
+function roadClassScore(roadClass: IntersectionBranch["roadClass"]): number {
+  if (roadClass === "major") {
+    return 3;
+  }
+  if (roadClass === "medium") {
+    return 2;
+  }
+  return 1;
+}
+
+function routeBearingsAtManeuver(geometry: Coordinate[], maneuver: Coordinate): RouteBearings {
+  if (geometry.length < 2) {
+    return {};
+  }
+
+  const nearestIndex = nearestCoordinateIndex(geometry, maneuver);
+  const incomingPoint = routePointAwayFromManeuver(geometry, nearestIndex, -1, maneuver);
+  const outgoingPoint = routePointAwayFromManeuver(geometry, nearestIndex, 1, maneuver);
+
+  return {
+    incoming: incomingPoint ? bearingDegrees(maneuver, incomingPoint) : undefined,
+    outgoing: outgoingPoint ? bearingDegrees(maneuver, outgoingPoint) : undefined
+  };
+}
+
+function routeTurnAngleDegrees(geometry: Coordinate[], maneuver: Coordinate): number {
+  const bearings = routeBearingsAtManeuver(geometry, maneuver);
+  if (bearings.incoming == null || bearings.outgoing == null) {
+    return 0;
+  }
+
+  return angularDistanceDegrees((bearings.incoming + 180) % 360, bearings.outgoing);
+}
+
+function routePointAwayFromManeuver(
+  geometry: Coordinate[],
+  nearestIndex: number,
+  direction: -1 | 1,
+  maneuver: Coordinate
+): Coordinate | null {
+  for (
+    let index = nearestIndex;
+    index >= 0 && index < geometry.length;
+    index += direction
+  ) {
+    if (distanceMeters(maneuver, geometry[index]) >= 18) {
+      return geometry[index];
+    }
+  }
+
+  return null;
+}
+
+function nearestCoordinateIndex(points: Coordinate[], target: Coordinate): number {
+  let nearestIndex = 0;
+  let nearestMeters = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < points.length; index += 1) {
+    const distance = distanceMeters(target, points[index]);
+    if (distance < nearestMeters) {
+      nearestMeters = distance;
+      nearestIndex = index;
+    }
+  }
+  return nearestIndex;
+}
+
+function angularDistanceDegrees(a: number, b: number): number {
+  return Math.abs(((a - b + 540) % 360) - 180);
 }
 
 function buildInstruction(type: string, modifier: string, roadName: string, exitNumber: number | null): string {

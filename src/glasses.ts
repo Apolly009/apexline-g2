@@ -207,13 +207,17 @@ function glassRenderKey(snapshot: GuidanceSnapshot, content: string): string {
   const preview = snapshot.routePreview
     ?.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`)
     .join(";") ?? "";
+  const sideRoads = snapshot.sideRoadBranches
+    ?.map((branch) => `${branch.roadClass}:${branch.points.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(";")}`)
+    .join("|") ?? "";
   return [
     content,
     snapshot.maneuverType ?? "",
     snapshot.modifier ?? "",
     snapshot.turnAngleDegrees ?? "",
     snapshot.showSideRoads ? "side-roads" : "clean",
-    preview
+    preview,
+    sideRoads
   ].join("\n");
 }
 
@@ -485,14 +489,15 @@ function drawPreviewRoute(
   const points = snapshot.routePreview && snapshot.routePreview.length > 1
     ? snapshot.routePreview
     : fallbackPreview(snapshot);
-  const displayPoints = mapMode ? stretchPreview(points) : points;
-  const pixelPoints = displayPoints.map((point) => [
+  const transform = mapMode ? previewStretchTransform(points) : identityPreviewTransform;
+  const toPixel = (point: { x: number; y: number }): [number, number] => [
     x + width / 2 + point.x * width * 0.44,
     y + height - point.y * height * 0.92
-  ] as [number, number]);
+  ];
+  const pixelPoints = points.map((point) => toPixel(transform(point)));
 
-  if (snapshot.showSideRoads && hasIntersectionSideRoads(snapshot)) {
-    drawSideRoadBranches(context, snapshot, pixelPoints, mapMode);
+  if (snapshot.showSideRoads && snapshot.sideRoadBranches && snapshot.sideRoadBranches.length > 0) {
+    drawSideRoadBranches(context, snapshot.sideRoadBranches, transform, toPixel, mapMode);
   }
 
   context.strokeStyle = mapMode ? "rgba(255, 255, 255, 0.07)" : "rgba(255, 255, 255, 0.16)";
@@ -514,106 +519,26 @@ function drawPreviewRoute(
 
 function drawSideRoadBranches(
   context: CanvasRenderingContext2D,
-  snapshot: GuidanceSnapshot,
-  routePoints: Array<[number, number]>,
+  branches: NonNullable<GuidanceSnapshot["sideRoadBranches"]>,
+  transform: (point: { x: number; y: number }) => { x: number; y: number },
+  toPixel: (point: { x: number; y: number }) => [number, number],
   mapMode: boolean
 ): void {
-  if (routePoints.length < 3) {
-    return;
-  }
-
-  const junctionIndex = strongestBendIndex(routePoints);
-  const junction = routePoints[junctionIndex];
-  const previous = routePoints[Math.max(0, junctionIndex - 1)];
-  const next = routePoints[Math.min(routePoints.length - 1, junctionIndex + 1)];
-  const incoming = Math.atan2(junction[1] - previous[1], junction[0] - previous[0]);
-  const outgoing = Math.atan2(next[1] - junction[1], next[0] - junction[0]);
-  const length = mapMode ? 62 : 44;
-  const branches = sideRoadBranches(snapshot, incoming, outgoing);
-
-  context.strokeStyle = mapMode ? "rgba(184, 195, 193, 0.22)" : "rgba(184, 195, 193, 0.28)";
-  context.lineWidth = mapMode ? 4 : 5;
-  for (const branch of branches) {
-    const end: [number, number] = [
-      junction[0] + Math.cos(branch.angle) * length * branch.length,
-      junction[1] + Math.sin(branch.angle) * length * branch.length
-    ];
-    drawPath(context, [junction, end]);
-  }
-}
-
-function strongestBendIndex(points: Array<[number, number]>): number {
-  let bestIndex = Math.max(1, Math.floor(points.length * 0.55));
-  let bestAngle = 0;
-
-  for (let index = 1; index < points.length - 1; index += 1) {
-    const previous = points[index - 1];
-    const current = points[index];
-    const next = points[index + 1];
-    const incoming = Math.atan2(current[1] - previous[1], current[0] - previous[0]);
-    const outgoing = Math.atan2(next[1] - current[1], next[0] - current[0]);
-    const angle = Math.abs(normalizeRadians(outgoing - incoming));
-    if (angle > bestAngle) {
-      bestAngle = angle;
-      bestIndex = index;
+  const sorted = [...branches].sort((a, b) => sideRoadWidth(a.roadClass, mapMode) - sideRoadWidth(b.roadClass, mapMode));
+  for (const branch of sorted) {
+    const points = branch.points.map((point) => toPixel(transform(point)));
+    if (points.length < 2) {
+      continue;
     }
+
+    context.strokeStyle = mapMode ? "rgba(255, 255, 255, 0.06)" : "rgba(255, 255, 255, 0.1)";
+    context.lineWidth = sideRoadWidth(branch.roadClass, mapMode) + (mapMode ? 5 : 4);
+    drawPath(context, points);
+
+    context.strokeStyle = sideRoadColor(branch.roadClass, mapMode);
+    context.lineWidth = sideRoadWidth(branch.roadClass, mapMode);
+    drawPath(context, points);
   }
-
-  return bestIndex;
-}
-
-function sideRoadBranches(
-  snapshot: GuidanceSnapshot,
-  incoming: number,
-  outgoing: number
-): Array<{ angle: number; length: number }> {
-  const type = snapshot.maneuverType ?? "";
-  const modifier = snapshot.modifier ?? "";
-  const turn = normalizeRadians(outgoing - incoming);
-  const straight = outgoing;
-  const left = incoming - Math.PI / 2;
-  const right = incoming + Math.PI / 2;
-
-  if (type === "roundabout" || type === "rotary") {
-    return [
-      { angle: normalizeRadians(incoming - Math.PI * 0.35), length: 0.72 },
-      { angle: normalizeRadians(incoming + Math.PI * 0.35), length: 0.72 }
-    ];
-  }
-
-  if (type === "fork" || type === "off ramp" || type === "on ramp") {
-    return [{ angle: normalizeRadians(outgoing + (turn >= 0 ? -Math.PI * 0.36 : Math.PI * 0.36)), length: 0.9 }];
-  }
-
-  if (type === "merge") {
-    return [{ angle: normalizeRadians(incoming + (turn >= 0 ? Math.PI * 0.34 : -Math.PI * 0.34)), length: 0.82 }];
-  }
-
-  if (modifier.includes("left")) {
-    return [
-      { angle: straight, length: 1 },
-      { angle: right, length: 0.72 }
-    ];
-  }
-
-  if (modifier.includes("right")) {
-    return [
-      { angle: straight, length: 1 },
-      { angle: left, length: 0.72 }
-    ];
-  }
-
-  if (modifier.includes("uturn")) {
-    return [
-      { angle: left, length: 0.72 },
-      { angle: right, length: 0.72 }
-    ];
-  }
-
-  return [
-    { angle: left, length: 0.82 },
-    { angle: right, length: 0.82 }
-  ];
 }
 
 function fallbackPreview(snapshot: GuidanceSnapshot): Array<{ x: number; y: number }> {
@@ -627,23 +552,47 @@ function fallbackPreview(snapshot: GuidanceSnapshot): Array<{ x: number; y: numb
   return [{ x: 0, y: 0 }, { x: 0, y: 0.95 }];
 }
 
-function stretchPreview(points: Array<{ x: number; y: number }>): Array<{ x: number; y: number }> {
+function identityPreviewTransform(point: { x: number; y: number }): { x: number; y: number } {
+  return point;
+}
+
+function previewStretchTransform(points: Array<{ x: number; y: number }>): (point: { x: number; y: number }) => { x: number; y: number } {
   const minY = points[0]?.y ?? 0;
   const maxY = Math.max(...points.map((point) => point.y));
   const spanY = maxY - minY;
   const maxAbsX = Math.max(0.2, ...points.map((point) => Math.abs(point.x)));
 
   if (spanY < 0.18) {
-    return points.map((point, index) => ({
+    return (point) => ({
       x: clampNumber(point.x / maxAbsX * 0.55, -1, 1),
-      y: points.length === 1 ? 0 : index / (points.length - 1)
-    }));
+      y: clampNumber(point.y / 0.18, 0, 1)
+    });
   }
 
-  return points.map((point) => ({
+  return (point) => ({
     x: clampNumber(point.x / maxAbsX * 0.62, -1, 1),
     y: clampNumber((point.y - minY) / spanY, 0, 1)
-  }));
+  });
+}
+
+function sideRoadWidth(roadClass: "major" | "medium" | "minor", mapMode: boolean): number {
+  if (roadClass === "major") {
+    return mapMode ? 6 : 7;
+  }
+  if (roadClass === "medium") {
+    return mapMode ? 4.5 : 5.5;
+  }
+  return mapMode ? 3 : 4;
+}
+
+function sideRoadColor(roadClass: "major" | "medium" | "minor", mapMode: boolean): string {
+  if (roadClass === "major") {
+    return mapMode ? "rgba(184, 195, 193, 0.34)" : "rgba(184, 195, 193, 0.42)";
+  }
+  if (roadClass === "medium") {
+    return mapMode ? "rgba(184, 195, 193, 0.26)" : "rgba(184, 195, 193, 0.34)";
+  }
+  return mapMode ? "rgba(184, 195, 193, 0.2)" : "rgba(184, 195, 193, 0.28)";
 }
 
 function drawVehicleMarker(context: CanvasRenderingContext2D, x: number, y: number): void {
@@ -737,25 +686,7 @@ function shouldUseRoutePreview(snapshot: GuidanceSnapshot): boolean {
 }
 
 function hasIntersectionSideRoads(snapshot: GuidanceSnapshot): boolean {
-  const modifier = snapshot.modifier ?? "";
-  const type = snapshot.maneuverType ?? "";
-  const angle = Math.abs(snapshot.turnAngleDegrees ?? 0);
-  return ["fork", "off ramp", "on ramp", "merge", "roundabout", "rotary", "turn", "end of road"].includes(type) ||
-    modifier.includes("left") ||
-    modifier.includes("right") ||
-    modifier.includes("uturn") ||
-    angle > 24;
-}
-
-function normalizeRadians(value: number): number {
-  let normalized = value;
-  while (normalized > Math.PI) {
-    normalized -= Math.PI * 2;
-  }
-  while (normalized < -Math.PI) {
-    normalized += Math.PI * 2;
-  }
-  return normalized;
+  return (snapshot.sideRoadBranches?.length ?? 0) > 0;
 }
 
 function formatPrimaryDistance(value: string): string {
