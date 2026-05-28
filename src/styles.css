@@ -355,6 +355,39 @@ h1 {
   background: rgba(232, 95, 63, 0.12);
 }
 
+.dev-speed-control {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(120px, 1fr) minmax(160px, 2fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 640px;
+  border: 1px dashed rgba(255, 194, 184, 0.45);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #ffc2b8;
+  background: rgba(232, 95, 63, 0.08);
+}
+
+.dev-speed-control span {
+  color: #ffc2b8;
+  font-size: 0.8rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.dev-speed-control input {
+  width: 100%;
+  accent-color: var(--line);
+}
+
+.dev-speed-control strong {
+  min-width: 72px;
+  color: #f7f6ef;
+  text-align: right;
+}
+
 .error {
   margin: 0;
   color: #ffc2b8;

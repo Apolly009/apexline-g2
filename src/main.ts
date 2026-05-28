@@ -31,6 +31,7 @@ type AppState = {
   routing: boolean;
   navigating: boolean;
   devDriving: boolean;
+  devDriveSpeedMetersPerSecond: number;
   startWhenRouteReady: boolean;
   routeRequestId: number;
   originQuery: string;
@@ -68,6 +69,7 @@ const state: AppState = {
   routing: false,
   navigating: false,
   devDriving: false,
+  devDriveSpeedMetersPerSecond: defaultDevDriveSpeed("motorcycle"),
   startWhenRouteReady: false,
   routeRequestId: 0,
   originQuery: "",
@@ -251,6 +253,7 @@ function render(): void {
             <button class="dev-route" id="dev-drive" type="button">
               ${state.devDriving ? "Pause simulated drive" : "Simulate driving"}
             </button>
+            ${state.devDriving ? renderDevSpeedControl() : ""}
           </div>
         ` : ""}
 
@@ -565,10 +568,30 @@ function renderGuidancePanel(): string {
   `;
 }
 
+function renderDevSpeedControl(): string {
+  return `
+    <label class="dev-speed-control">
+      <span>Simulation speed</span>
+      <input
+        id="dev-speed"
+        type="range"
+        min="${devSpeedSliderMin()}"
+        max="${devSpeedSliderMax()}"
+        step="${devSpeedSliderStep()}"
+        value="${devSpeedSliderValue()}"
+      />
+      <strong id="dev-speed-readout">${formatDevDriveSpeed()}</strong>
+    </label>
+  `;
+}
+
 function bindEvents(): void {
   document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((button) => {
     button.addEventListener("click", () => {
       state.mode = button.dataset.mode as TravelMode;
+      if (!state.devDriving) {
+        state.devDriveSpeedMetersPerSecond = defaultDevDriveSpeed(state.mode);
+      }
       void updateGlass();
       render();
     });
@@ -676,6 +699,22 @@ function bindEvents(): void {
 
   document.querySelector<HTMLButtonElement>("#dev-drive")?.addEventListener("click", () => {
     void toggleDevDriving();
+  });
+
+  document.querySelector<HTMLInputElement>("#dev-speed")?.addEventListener("input", (event) => {
+    state.devDriveSpeedMetersPerSecond = devSliderValueToMetersPerSecond((event.target as HTMLInputElement).valueAsNumber);
+    if (state.position && state.locationSource === "simulated") {
+      state.position = {
+        ...state.position,
+        speedMetersPerSecond: state.devDriving ? state.devDriveSpeedMetersPerSecond : 0
+      };
+    }
+    state.locationStatus = state.devDriving
+      ? `Simulated drive running at ${formatDevDriveSpeed()}.`
+      : state.locationStatus;
+    void updateGlass();
+    updateStatsCard();
+    updateDevSpeedReadout();
   });
 }
 
@@ -1182,7 +1221,7 @@ function startDevDriving(): void {
   state.error = null;
   devDriveDistanceMeters = distanceAlongRoute(state.route.geometry, state.position?.coordinate ?? state.route.geometry[0]);
   lastDevDriveAt = performance.now();
-  devDriveTimer = window.setInterval(tickDevDriving, 1000);
+  devDriveTimer = window.setInterval(tickDevDriving, 250);
   tickDevDriving();
   render();
 }
@@ -1225,7 +1264,7 @@ function tickDevDriving(): void {
   }
 
   const now = performance.now();
-  const elapsedSeconds = Math.min(2, Math.max(0, (now - lastDevDriveAt) / 1000));
+  const elapsedSeconds = Math.min(0.75, Math.max(0, (now - lastDevDriveAt) / 1000));
   lastDevDriveAt = now;
   devDriveDistanceMeters += devDriveSpeedMetersPerSecond() * elapsedSeconds;
   const routeLength = routeGeometryLength(state.route.geometry);
@@ -1250,7 +1289,7 @@ function tickDevDriving(): void {
 }
 
 function devDriveSpeedMetersPerSecond(): number {
-  return state.mode === "motorcycle" ? 24.6 : 29.1;
+  return state.devDriveSpeedMetersPerSecond;
 }
 
 function formatDevDriveSpeed(): string {
@@ -1260,6 +1299,44 @@ function formatDevDriveSpeed(): string {
   }
 
   return `${Math.round(speed * 2.236936)} mph`;
+}
+
+function defaultDevDriveSpeed(mode: TravelMode): number {
+  return mode === "motorcycle" ? 24.6 : 29.1;
+}
+
+function devSliderValueToMetersPerSecond(value: number): number {
+  if (!Number.isFinite(value)) {
+    return defaultDevDriveSpeed(state.mode);
+  }
+
+  return state.unitSystem === "metric" ? value / 3.6 : value / 2.236936;
+}
+
+function devSpeedSliderValue(): number {
+  const speed = devDriveSpeedMetersPerSecond();
+  return state.unitSystem === "metric"
+    ? Math.round(speed * 3.6)
+    : Math.round(speed * 2.236936);
+}
+
+function devSpeedSliderMin(): number {
+  return state.unitSystem === "metric" ? 10 : 5;
+}
+
+function devSpeedSliderMax(): number {
+  return state.unitSystem === "metric" ? 180 : 110;
+}
+
+function devSpeedSliderStep(): number {
+  return 5;
+}
+
+function updateDevSpeedReadout(): void {
+  const readout = document.querySelector<HTMLElement>("#dev-speed-readout");
+  if (readout) {
+    readout.textContent = formatDevDriveSpeed();
+  }
 }
 
 function startNavigation(): void {
