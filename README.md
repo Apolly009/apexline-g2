@@ -50,9 +50,9 @@ evenhub-simulator http://localhost:5173
 ```
 
 Developer tools are hidden in the normal phone UI. Tap the Apexline title five
-times to toggle them, or open with `?devTools=1`. Dev launch flags remain
-available for simulator testing, for example
-`?devRoute=1&view=map&drive=1`.
+times to toggle them for the current session, or open with `?devTools=1`.
+They reset to hidden on every fresh app load. Dev launch flags remain available
+for simulator testing, for example `?devRoute=1&view=map&autoDrive=1`.
 
 ## Build and pack
 

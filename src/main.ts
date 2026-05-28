@@ -51,7 +51,6 @@ type AppState = {
 };
 
 const FAVORITES_STORAGE_KEY = "apexline-favorites";
-const DEV_TOOLS_STORAGE_KEY = "apexline-dev-tools";
 const UNIT_SYSTEM_STORAGE_KEY = "apexline-unit-system";
 const SIDE_ROADS_STORAGE_KEY = "apexline-side-roads";
 
@@ -78,7 +77,7 @@ const state: AppState = {
   results: [],
   favorites: loadFavorites(),
   glassesFavoriteIndex: 0,
-  devToolsEnabled: loadDevToolsEnabled(),
+  devToolsEnabled: false,
   selectedPlace: null,
   route: null,
   position: null,
@@ -142,7 +141,7 @@ function shouldAutoRunDevRoute(): boolean {
 }
 
 function shouldAutoStartDevDriving(): boolean {
-  return new URLSearchParams(window.location.search).has("drive");
+  return new URLSearchParams(window.location.search).has("autoDrive");
 }
 
 function applyLaunchOptions(): void {
@@ -164,7 +163,6 @@ function applyLaunchOptions(): void {
 
   if (params.has("devTools")) {
     state.devToolsEnabled = params.get("devTools") !== "0";
-    saveDevToolsEnabled();
   }
 }
 
@@ -242,7 +240,7 @@ function render(): void {
           <button class="primary" id="start-nav" type="button" ${canStartNavigation() ? "" : "disabled"}>
             ${state.navigating ? "Navigation running" : state.routing && state.startWhenRouteReady ? "Starting..." : "Start navigation"}
           </button>
-          ${state.routing ? `<button class="danger" id="cancel-route" type="button">Cancel route</button>` : ""}
+          ${canCancelNavigation() ? `<button class="danger" id="cancel-route" type="button">${state.routing ? "Cancel route" : "Stop navigation"}</button>` : ""}
         </div>
 
         ${state.devToolsEnabled ? `
@@ -613,7 +611,6 @@ function bindEvents(): void {
     if (titleTapCount >= 5) {
       titleTapCount = 0;
       state.devToolsEnabled = !state.devToolsEnabled;
-      saveDevToolsEnabled();
       state.locationStatus = state.devToolsEnabled ? "Dev tools enabled." : "Dev tools hidden.";
       render();
     }
@@ -670,11 +667,7 @@ function bindEvents(): void {
   });
 
   document.querySelector<HTMLButtonElement>("#cancel-route")?.addEventListener("click", () => {
-    state.routeRequestId += 1;
-    state.routing = false;
-    state.error = "Route request cancelled.";
-    state.startWhenRouteReady = false;
-    render();
+    cancelNavigation(state.routing ? "Route request cancelled." : "Navigation stopped.");
   });
 
   document.querySelector<HTMLButtonElement>("#dev-route")?.addEventListener("click", () => {
@@ -855,14 +848,6 @@ function loadFavorites(): PlaceResult[] {
 
 function saveFavorites(): void {
   window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(state.favorites));
-}
-
-function loadDevToolsEnabled(): boolean {
-  return window.localStorage.getItem(DEV_TOOLS_STORAGE_KEY) === "1";
-}
-
-function saveDevToolsEnabled(): void {
-  window.localStorage.setItem(DEV_TOOLS_STORAGE_KEY, state.devToolsEnabled ? "1" : "0");
 }
 
 function loadUnitSystem(): UnitSystem {
@@ -1217,6 +1202,22 @@ function stopDevDriving(status?: string): void {
   }
 }
 
+function canCancelNavigation(): boolean {
+  return state.routing || state.navigating || state.devDriving || state.startWhenRouteReady;
+}
+
+function cancelNavigation(status = "Navigation stopped."): void {
+  stopDevDriving();
+  state.routeRequestId += 1;
+  state.routing = false;
+  state.navigating = false;
+  state.startWhenRouteReady = false;
+  state.error = null;
+  state.locationStatus = status;
+  void updateGlass();
+  render();
+}
+
 function tickDevDriving(): void {
   if (!state.route || !state.devDriving) {
     stopDevDriving();
@@ -1377,10 +1378,7 @@ function mapGlassesSnapshot(snapshot: GuidanceSnapshot): GuidanceSnapshot {
 
 function handleGlassInput(action: "press" | "double" | "up" | "down"): void {
   if (action === "double") {
-    stopDevDriving("Navigation paused.");
-    state.navigating = false;
-    void updateGlass();
-    render();
+    cancelNavigation("Navigation stopped.");
     return;
   }
 
