@@ -58,6 +58,7 @@ button:disabled {
 }
 
 .topbar {
+  position: relative;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -65,6 +66,16 @@ button:disabled {
   margin-bottom: 22px;
   border-bottom: 1px solid rgba(243, 244, 239, 0.16);
   padding-bottom: 18px;
+}
+
+.topbar-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .eyebrow {
@@ -103,6 +114,55 @@ h1 {
 .bridge.on {
   border-color: rgba(110, 225, 199, 0.76);
   color: #b9fff1;
+}
+
+.settings-menu {
+  position: relative;
+}
+
+.settings-menu summary {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(243, 244, 239, 0.24);
+  border-radius: 8px;
+  color: #f7f6ef;
+  background: rgba(9, 12, 15, 0.62);
+  cursor: pointer;
+  list-style: none;
+}
+
+.settings-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-menu summary span {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.settings-menu[open] summary {
+  border-color: rgba(241, 198, 75, 0.72);
+  color: var(--line);
+}
+
+.settings-menu:not([open]) .settings-popover {
+  display: none;
+}
+
+.settings-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 1000;
+  width: min(340px, calc(100vw - 32px));
+  border: 1px solid rgba(243, 244, 239, 0.18);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(15, 17, 16, 0.98);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(18px);
 }
 
 .panel,
@@ -452,38 +512,9 @@ h1 {
   margin-top: 16px;
 }
 
-.settings-panel {
-  margin-top: 16px;
-  padding: 16px 18px;
-}
-
-.settings-panel summary {
-  cursor: pointer;
-  color: #f7f6ef;
-  font-size: 1.05rem;
-  font-weight: 900;
-  list-style: none;
-  text-transform: uppercase;
-}
-
-.settings-panel summary::-webkit-details-marker {
-  display: none;
-}
-
-.settings-panel summary::after {
-  content: "+";
-  float: right;
-  color: var(--line);
-}
-
-.settings-panel details[open] summary::after {
-  content: "-";
-}
-
 .settings-grid {
   display: grid;
   gap: 14px;
-  padding-top: 16px;
 }
 
 .setting-group {

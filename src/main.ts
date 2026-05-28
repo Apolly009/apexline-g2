@@ -183,9 +183,17 @@ function render(): void {
           <h1 id="app-title">Apexline</h1>
           <p class="tagline">Ride the line. Drive the pass.</p>
         </div>
-        <span class="bridge ${state.bridgeConnected ? "on" : ""}">
-          ${state.bridgeConnected ? "Glasses live" : "Phone preview"}
-        </span>
+        <div class="topbar-actions">
+          <span class="bridge ${state.bridgeConnected ? "on" : ""}">
+            ${state.bridgeConnected ? "Glasses live" : "Phone preview"}
+          </span>
+          <details class="settings-menu">
+            <summary aria-label="Settings" title="Settings">
+              <span aria-hidden="true">⚙</span>
+            </summary>
+            ${renderSettingsMenu()}
+          </details>
+        </div>
       </header>
 
       <section class="panel route-panel">
@@ -270,31 +278,6 @@ function render(): void {
         </article>
       </section>
 
-      <section class="panel settings-panel" aria-label="Settings">
-        <details>
-          <summary>Settings</summary>
-          <div class="settings-grid">
-            <div class="setting-group">
-              <span>Glasses view</span>
-              <div class="segmented-row" role="group" aria-label="Glasses guidance style">
-                <button class="view-mode ${state.guidanceView === "arrows" ? "active" : ""}" data-guidance-view="arrows" type="button">Arrows</button>
-                <button class="view-mode ${state.guidanceView === "map" ? "active" : ""}" data-guidance-view="map" type="button">Map</button>
-              </div>
-            </div>
-            <div class="setting-group">
-              <span>Units</span>
-              <div class="segmented-row" role="group" aria-label="Distance units">
-                <button class="unit-mode ${state.unitSystem === "imperial" ? "active" : ""}" data-unit-system="imperial" type="button">Imperial</button>
-                <button class="unit-mode ${state.unitSystem === "metric" ? "active" : ""}" data-unit-system="metric" type="button">Metric</button>
-              </div>
-            </div>
-            <label class="setting-toggle">
-              <input type="checkbox" data-side-roads ${state.showSideRoads ? "checked" : ""} />
-              <span>Intersection side roads</span>
-            </label>
-          </div>
-        </details>
-      </section>
     </section>
   `;
 
@@ -334,6 +317,33 @@ function updateStatsCard(): void {
   if (guidanceCard) {
     guidanceCard.innerHTML = renderGuidancePanel();
   }
+}
+
+function renderSettingsMenu(): string {
+  return `
+    <div class="settings-popover">
+      <div class="settings-grid">
+        <div class="setting-group">
+          <span>Glasses view</span>
+          <div class="segmented-row" role="group" aria-label="Glasses guidance style">
+            <button class="view-mode ${state.guidanceView === "arrows" ? "active" : ""}" data-guidance-view="arrows" type="button">Arrows</button>
+            <button class="view-mode ${state.guidanceView === "map" ? "active" : ""}" data-guidance-view="map" type="button">Map</button>
+          </div>
+        </div>
+        <div class="setting-group">
+          <span>Units</span>
+          <div class="segmented-row" role="group" aria-label="Distance units">
+            <button class="unit-mode ${state.unitSystem === "imperial" ? "active" : ""}" data-unit-system="imperial" type="button">Imperial</button>
+            <button class="unit-mode ${state.unitSystem === "metric" ? "active" : ""}" data-unit-system="metric" type="button">Metric</button>
+          </div>
+        </div>
+        <label class="setting-toggle">
+          <input type="checkbox" data-side-roads ${state.showSideRoads ? "checked" : ""} />
+          <span>Intersection side roads</span>
+        </label>
+      </div>
+    </div>
+  `;
 }
 
 function currentOriginPlace(): PlaceResult | null {
