@@ -490,19 +490,19 @@ function drawPreviewRoute(
     y + height - point.y * height * 0.92
   ] as [number, number]);
 
-  context.strokeStyle = mapMode ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.18)";
-  context.lineWidth = mapMode ? 28 : 24;
+  context.strokeStyle = mapMode ? "rgba(255, 255, 255, 0.07)" : "rgba(255, 255, 255, 0.16)";
+  context.lineWidth = mapMode ? 20 : 18;
   drawPath(context, pixelPoints);
 
   context.strokeStyle = mapMode ? "rgba(241, 198, 75, 0.48)" : "#f1c64b";
-  context.lineWidth = mapMode ? 12 : 14;
+  context.lineWidth = mapMode ? 8 : 10;
   drawPath(context, pixelPoints);
 
   const end = pixelPoints[pixelPoints.length - 1];
   const beforeEnd = pixelPoints[Math.max(0, pixelPoints.length - 2)];
   const angle = (Math.atan2(end[0] - beforeEnd[0], beforeEnd[1] - end[1]) * 180) / Math.PI;
   context.globalAlpha = mapMode ? 0.58 : 1;
-  drawArrowHead(context, end[0], end[1], angle, mapMode ? 26 : 20);
+  drawArrowHead(context, end[0], end[1], angle, mapMode ? 30 : 24);
   context.globalAlpha = 1;
 
   if (!mapMode && isComplexManeuver(snapshot)) {
@@ -521,8 +521,8 @@ function drawUnchosenBranch(
   const right = !(snapshot.modifier ?? "").includes("left");
   const startX = x + width / 2;
   const startY = y + height * 0.68;
-  context.strokeStyle = "rgba(255, 255, 255, 0.22)";
-  context.lineWidth = 8;
+  context.strokeStyle = "rgba(255, 255, 255, 0.18)";
+  context.lineWidth = 5;
   drawPath(context, [
     [startX, startY],
     [startX + (right ? -width * 0.28 : width * 0.28), y + height * 0.22]

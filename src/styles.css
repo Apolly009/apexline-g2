@@ -130,14 +130,16 @@ h1 {
   padding: 4px;
 }
 
-.view-row {
+.view-row,
+.unit-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 
 .mode,
-.view-mode {
+.view-mode,
+.unit-mode {
   border: 0;
   border-radius: 6px;
   padding: 10px 12px;
@@ -147,13 +149,15 @@ h1 {
   text-transform: uppercase;
 }
 
-.view-mode {
+.view-mode,
+.unit-mode {
   border: 1px solid rgba(243, 244, 239, 0.14);
   background: rgba(243, 244, 239, 0.05);
 }
 
 .mode.active,
-.view-mode.active {
+.view-mode.active,
+.unit-mode.active {
   color: #12120f;
   background: var(--line);
 }

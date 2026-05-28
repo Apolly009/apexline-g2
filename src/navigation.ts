@@ -4,6 +4,7 @@ export type Coordinate = {
 };
 
 export type TravelMode = "car" | "motorcycle";
+export type UnitSystem = "imperial" | "metric";
 
 export type PlaceResult = {
   id: string;
@@ -199,13 +200,29 @@ export function bearingDegrees(a: Coordinate, b: Coordinate): number {
   return normalizeDegrees((Math.atan2(y, x) * 180) / Math.PI);
 }
 
-export function formatDistance(meters: number): string {
+export function formatDistance(meters: number, unitSystem: UnitSystem = "imperial"): string {
   if (!Number.isFinite(meters)) {
     return "--";
   }
 
+  if (unitSystem === "metric") {
+    if (meters < 1000) {
+      return `${Math.max(0, Math.round(meters / 10) * 10)} m`;
+    }
+
+    const kilometers = meters / 1000;
+    if (kilometers < 10) {
+      return `${kilometers.toFixed(1)} km`;
+    }
+
+    return `${Math.round(kilometers)} km`;
+  }
+
   if (meters < 1000) {
-    return `${Math.max(0, Math.round(meters / 10) * 10)} m`;
+    const feet = meters * 3.28084;
+    if (feet < 1000) {
+      return `${Math.max(0, Math.round(feet / 10) * 10)} ft`;
+    }
   }
 
   const miles = meters / 1609.344;
@@ -231,9 +248,13 @@ export function formatEta(seconds: number): string {
   return remaining === 0 ? `${hours} hr` : `${hours}h ${remaining}m`;
 }
 
-export function formatSpeed(metersPerSecond: number | null): string {
+export function formatSpeed(metersPerSecond: number | null, unitSystem: UnitSystem = "imperial"): string {
   if (metersPerSecond == null || !Number.isFinite(metersPerSecond)) {
-    return "-- mph";
+    return unitSystem === "metric" ? "-- km/h" : "-- mph";
+  }
+
+  if (unitSystem === "metric") {
+    return `${Math.max(0, Math.round(metersPerSecond * 3.6))} km/h`;
   }
 
   return `${Math.max(0, Math.round(metersPerSecond * 2.236936))} mph`;

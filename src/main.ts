@@ -6,6 +6,7 @@ import {
   type PlaceResult,
   type RouteResult,
   type TravelMode,
+  type UnitSystem,
   bearingDegrees,
   distanceMeters,
   fetchDrivingRoute,
@@ -18,6 +19,7 @@ import "./styles.css";
 
 type AppState = {
   mode: TravelMode;
+  unitSystem: UnitSystem;
   guidanceView: "arrows" | "map";
   activeSearchField: "origin" | "destination" | null;
   bridgeConnected: boolean;
@@ -49,9 +51,11 @@ type AppState = {
 
 const FAVORITES_STORAGE_KEY = "apexline-favorites";
 const DEV_TOOLS_STORAGE_KEY = "apexline-dev-tools";
+const UNIT_SYSTEM_STORAGE_KEY = "apexline-unit-system";
 
 const state: AppState = {
   mode: "motorcycle",
+  unitSystem: loadUnitSystem(),
   guidanceView: "arrows",
   activeSearchField: null,
   bridgeConnected: false,
@@ -144,6 +148,12 @@ function applyLaunchOptions(): void {
     state.guidanceView = "map";
   }
 
+  const units = params.get("units");
+  if (units === "metric" || units === "imperial") {
+    state.unitSystem = units;
+    saveUnitSystem();
+  }
+
   if (params.has("devTools")) {
     state.devToolsEnabled = params.get("devTools") !== "0";
     saveDevToolsEnabled();
@@ -178,6 +188,10 @@ function render(): void {
         <p class="mode-note">
           Moto gives earlier turn prep and a wider off-route buffer; Drive keeps prompts tighter for spirited road driving.
         </p>
+        <div class="unit-row" role="group" aria-label="Distance units">
+          <button class="unit-mode ${state.unitSystem === "imperial" ? "active" : ""}" data-unit-system="imperial" type="button">Imperial</button>
+          <button class="unit-mode ${state.unitSystem === "metric" ? "active" : ""}" data-unit-system="metric" type="button">Metric</button>
+        </div>
         <div class="view-row" role="group" aria-label="Glasses guidance style">
           <button class="view-mode ${state.guidanceView === "arrows" ? "active" : ""}" data-guidance-view="arrows" type="button">Arrows</button>
           <button class="view-mode ${state.guidanceView === "map" ? "active" : ""}" data-guidance-view="map" type="button">Map</button>
@@ -480,7 +494,7 @@ function renderStats(): string {
 
   const nextStep = state.route.steps[state.nextStepIndex];
   return `
-    <div class="stat"><span>Total</span><strong>${formatDistance(state.route.distanceMeters)}</strong></div>
+    <div class="stat"><span>Total</span><strong>${formatDistance(state.route.distanceMeters, state.unitSystem)}</strong></div>
     <div class="stat"><span>ETA</span><strong>${formatEta(state.route.durationSeconds)}</strong></div>
     <div class="stat"><span>Source</span><strong>${locationSourceLabel()}</strong></div>
     <div class="stat"><span>Next</span><strong>${nextStep ? escapeHtml(nextStep.shortInstruction) : "Done"}</strong></div>
@@ -500,7 +514,7 @@ function renderGuidancePanel(): string {
     `;
   }
 
-  const snapshot = makeGuidanceSnapshot(state.route, state.position, state.mode, state.nextStepIndex);
+  const snapshot = makeGuidanceSnapshot(state.route, state.position, state.mode, state.nextStepIndex, state.unitSystem);
   if (state.guidanceView === "map") {
     return `
       <div class="mini-map-visual" aria-hidden="true">
@@ -538,6 +552,15 @@ function bindEvents(): void {
   document.querySelectorAll<HTMLButtonElement>("[data-guidance-view]").forEach((button) => {
     button.addEventListener("click", () => {
       state.guidanceView = button.dataset.guidanceView as AppState["guidanceView"];
+      void updateGlass();
+      render();
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-unit-system]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.unitSystem = button.dataset.unitSystem as UnitSystem;
+      saveUnitSystem();
       void updateGlass();
       render();
     });
@@ -806,6 +829,14 @@ function loadDevToolsEnabled(): boolean {
 
 function saveDevToolsEnabled(): void {
   window.localStorage.setItem(DEV_TOOLS_STORAGE_KEY, state.devToolsEnabled ? "1" : "0");
+}
+
+function loadUnitSystem(): UnitSystem {
+  return window.localStorage.getItem(UNIT_SYSTEM_STORAGE_KEY) === "metric" ? "metric" : "imperial";
+}
+
+function saveUnitSystem(): void {
+  window.localStorage.setItem(UNIT_SYSTEM_STORAGE_KEY, state.unitSystem);
 }
 
 function scheduleSearch(): void {
@@ -1168,7 +1199,7 @@ function tickDevDriving(): void {
     headingDegrees: sample.headingDegrees
   };
   state.locationStatus = state.devDriving
-    ? `Simulated drive running at ${Math.round(devDriveSpeedMetersPerSecond() * 2.236936)} mph.`
+    ? `Simulated drive running at ${formatDevDriveSpeed()}.`
     : state.locationStatus;
   void updateGlass();
   updateStatsCard();
@@ -1177,6 +1208,15 @@ function tickDevDriving(): void {
 
 function devDriveSpeedMetersPerSecond(): number {
   return state.mode === "motorcycle" ? 24.6 : 29.1;
+}
+
+function formatDevDriveSpeed(): string {
+  const speed = devDriveSpeedMetersPerSecond();
+  if (state.unitSystem === "metric") {
+    return `${Math.round(speed * 3.6)} km/h`;
+  }
+
+  return `${Math.round(speed * 2.236936)} mph`;
 }
 
 function startNavigation(): void {
@@ -1226,7 +1266,7 @@ function currentSnapshot(): GuidanceSnapshot {
     return makeIdleSnapshot("Route ready to build");
   }
 
-  const snapshot = makeGuidanceSnapshot(state.route, state.position, state.mode, state.nextStepIndex);
+  const snapshot = makeGuidanceSnapshot(state.route, state.position, state.mode, state.nextStepIndex, state.unitSystem);
   state.nextStepIndex = snapshot.nextStepIndex;
   return state.guidanceView === "map" ? mapGlassesSnapshot(snapshot) : snapshot;
 }

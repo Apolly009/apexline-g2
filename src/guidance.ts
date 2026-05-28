@@ -3,6 +3,7 @@ import {
   type RouteResult,
   type RouteStep,
   type TravelMode,
+  type UnitSystem,
   bearingDegrees,
   distanceMeters,
   formatDistance,
@@ -60,7 +61,8 @@ export function makeGuidanceSnapshot(
   route: RouteResult,
   position: PositionSample,
   mode: TravelMode,
-  previousStepIndex: number
+  previousStepIndex: number,
+  unitSystem: UnitSystem = "imperial"
 ): GuidanceSnapshot {
   const nearestRouteDistance = nearestDistanceToRoute(route.geometry, position.coordinate);
   const offRoute = nearestRouteDistance > offRouteThresholdMeters(mode, position.speedMetersPerSecond);
@@ -83,10 +85,10 @@ export function makeGuidanceSnapshot(
   return {
     active: true,
     title: mode === "motorcycle" ? "Apex Moto" : "Apex Drive",
-    primary: offRoute ? "REROUTE NEEDED" : `${stepArrow(step)} ${formatDistance(distanceToStepMeters)}  ${step.shortInstruction}`,
+    primary: offRoute ? "REROUTE NEEDED" : `${stepArrow(step)} ${formatDistance(distanceToStepMeters, unitSystem)}  ${step.shortInstruction}`,
     secondary: offRoute ? "Pull over or tap Re-route" : step.instruction,
-    tertiary: `${formatDistance(remainingMeters)} left | ETA ${formatEta(remainingSeconds)}`,
-    hint: `${formatSpeed(position.speedMetersPerSecond)} | ${Math.round(heading)} deg | ${soon ? "prepare" : "cruise"}`,
+    tertiary: `${formatDistance(remainingMeters, unitSystem)} left | ETA ${formatEta(remainingSeconds)}`,
+    hint: `${formatSpeed(position.speedMetersPerSecond, unitSystem)} | ${Math.round(heading)} deg | ${soon ? "prepare" : "cruise"}`,
     arrow: stepArrow(step),
     nextStepIndex,
     distanceToStepMeters,
