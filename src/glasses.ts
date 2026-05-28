@@ -49,7 +49,7 @@ export class GlassDisplay {
         }
       });
 
-      const created = await this.createPage("Apexline\n\nWaiting for destination...", "startup");
+      const created = await this.createPage("Apexline\nRide ready\nWaiting for route", "startup");
       if (!created) {
         this.bridge = null;
         this.ready = false;
@@ -336,17 +336,62 @@ function drawIdleImage(
   fallbackContent: string
 ): void {
   const lines = fallbackContent.split("\n").filter(Boolean);
-  context.fillStyle = "rgba(241, 198, 75, 0.24)";
+  const title = snapshot?.title ?? lines[0] ?? "Apexline";
+  const primary = snapshot?.primary ?? lines[1] ?? "Ride ready";
+  const secondary = snapshot?.secondary ?? lines[2] ?? "Waiting for route";
+  const tertiary = snapshot?.tertiary ?? snapshot?.hint ?? "";
+
+  const routePoints: Array<[number, number]> = [
+    [78, 236],
+    [150, 200],
+    [220, 208],
+    [286, 154],
+    [364, 122],
+    [474, 58]
+  ];
+
+  context.strokeStyle = "rgba(110, 225, 199, 0.16)";
+  context.lineWidth = 36;
+  drawPath(context, routePoints);
+  context.strokeStyle = "rgba(241, 198, 75, 0.3)";
+  context.lineWidth = 10;
+  drawPath(context, routePoints);
+
+  context.fillStyle = "#6ee1c7";
   context.beginPath();
-  context.arc(288, 70, 48, 0, Math.PI * 2);
+  context.arc(routePoints[0][0], routePoints[0][1], 11, 0, Math.PI * 2);
   context.fill();
+
   context.fillStyle = "#f1c64b";
-  context.font = "bold 44px system-ui, sans-serif";
-  context.textAlign = "center";
-  context.fillText(snapshot?.title ?? lines[0] ?? "Apexline", 288, 116);
+  context.beginPath();
+  context.moveTo(482, 42);
+  context.lineTo(512, 76);
+  context.lineTo(474, 68);
+  context.closePath();
+  context.fill();
+
+  context.fillStyle = "rgba(0, 0, 0, 0.62)";
+  roundRect(context, 34, 28, 310, 76, 14);
+  context.fill();
+
+  context.fillStyle = "#f1c64b";
+  context.font = "bold 38px system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillText(trimImageLine(title, 14), 52, 78);
+
   context.fillStyle = "#ffffff";
-  context.font = "28px system-ui, sans-serif";
-  context.fillText(snapshot?.primary ?? lines[1] ?? "Waiting", 288, 164);
+  context.font = "bold 30px system-ui, sans-serif";
+  context.fillText(trimImageLine(primary, 26), 52, 150);
+
+  context.fillStyle = "#b8c3c1";
+  context.font = "21px system-ui, sans-serif";
+  context.fillText(trimImageLine(secondary, 34), 52, 184);
+
+  if (tertiary) {
+    context.fillStyle = "rgba(110, 225, 199, 0.9)";
+    context.font = "bold 19px system-ui, sans-serif";
+    context.fillText(trimImageLine(tertiary, 34), 52, 260);
+  }
 }
 
 function drawHudHeader(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
