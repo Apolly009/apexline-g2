@@ -1,0 +1,28 @@
+{
+  "package_id": "com.romanseemann.apexline",
+  "edition": "202601",
+  "name": "Apexline",
+  "version": "0.1.0",
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.10",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "location",
+      "desc": "Uses current phone location to calculate and update driving guidance."
+    },
+    {
+      "name": "network",
+      "desc": "Searches destinations, fetches driving routes, loads map tiles, and loads the companion screen visual.",
+      "whitelist": [
+        "https://nominatim.openstreetmap.org",
+        "https://router.project-osrm.org",
+        "https://a.tile.openstreetmap.org",
+        "https://b.tile.openstreetmap.org",
+        "https://c.tile.openstreetmap.org",
+        "https://images.unsplash.com"
+      ]
+    }
+  ],
+  "supported_languages": ["en"]
+}
