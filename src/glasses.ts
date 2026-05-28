@@ -492,7 +492,7 @@ function drawPreviewRoute(
   ] as [number, number]);
 
   if (snapshot.showSideRoads && hasIntersectionSideRoads(snapshot)) {
-    drawSideRoadBranches(context, pixelPoints, mapMode);
+    drawSideRoadBranches(context, snapshot, pixelPoints, mapMode);
   }
 
   context.strokeStyle = mapMode ? "rgba(255, 255, 255, 0.07)" : "rgba(255, 255, 255, 0.16)";
@@ -510,13 +510,11 @@ function drawPreviewRoute(
   drawArrowHead(context, end[0], end[1], angle, mapMode ? 30 : 24);
   context.globalAlpha = 1;
 
-  if (!mapMode && snapshot.showSideRoads && isComplexManeuver(snapshot)) {
-    drawUnchosenBranch(context, snapshot, x, y, width, height);
-  }
 }
 
 function drawSideRoadBranches(
   context: CanvasRenderingContext2D,
+  snapshot: GuidanceSnapshot,
   routePoints: Array<[number, number]>,
   mapMode: boolean
 ): void {
@@ -531,14 +529,14 @@ function drawSideRoadBranches(
   const incoming = Math.atan2(junction[1] - previous[1], junction[0] - previous[0]);
   const outgoing = Math.atan2(next[1] - junction[1], next[0] - junction[0]);
   const length = mapMode ? 62 : 44;
-  const branchAngles = sideBranchAngles(incoming, outgoing);
+  const branches = sideRoadBranches(snapshot, incoming, outgoing);
 
   context.strokeStyle = mapMode ? "rgba(184, 195, 193, 0.22)" : "rgba(184, 195, 193, 0.28)";
   context.lineWidth = mapMode ? 4 : 5;
-  for (const angle of branchAngles) {
+  for (const branch of branches) {
     const end: [number, number] = [
-      junction[0] + Math.cos(angle) * length,
-      junction[1] + Math.sin(angle) * length
+      junction[0] + Math.cos(branch.angle) * length * branch.length,
+      junction[1] + Math.sin(branch.angle) * length * branch.length
     ];
     drawPath(context, [junction, end]);
   }
@@ -564,33 +562,58 @@ function strongestBendIndex(points: Array<[number, number]>): number {
   return bestIndex;
 }
 
-function sideBranchAngles(incoming: number, outgoing: number): number[] {
-  const bisector = normalizeRadians((incoming + outgoing) / 2);
-  const crossing = outgoing + Math.PI / 2;
-  return [
-    normalizeRadians(bisector + Math.PI * 0.62),
-    normalizeRadians(bisector - Math.PI * 0.62),
-    normalizeRadians(crossing)
-  ];
-}
-
-function drawUnchosenBranch(
-  context: CanvasRenderingContext2D,
+function sideRoadBranches(
   snapshot: GuidanceSnapshot,
-  x: number,
-  y: number,
-  width: number,
-  height: number
-): void {
-  const right = !(snapshot.modifier ?? "").includes("left");
-  const startX = x + width / 2;
-  const startY = y + height * 0.68;
-  context.strokeStyle = "rgba(255, 255, 255, 0.18)";
-  context.lineWidth = 5;
-  drawPath(context, [
-    [startX, startY],
-    [startX + (right ? -width * 0.28 : width * 0.28), y + height * 0.22]
-  ]);
+  incoming: number,
+  outgoing: number
+): Array<{ angle: number; length: number }> {
+  const type = snapshot.maneuverType ?? "";
+  const modifier = snapshot.modifier ?? "";
+  const turn = normalizeRadians(outgoing - incoming);
+  const straight = outgoing;
+  const left = incoming - Math.PI / 2;
+  const right = incoming + Math.PI / 2;
+
+  if (type === "roundabout" || type === "rotary") {
+    return [
+      { angle: normalizeRadians(incoming - Math.PI * 0.35), length: 0.72 },
+      { angle: normalizeRadians(incoming + Math.PI * 0.35), length: 0.72 }
+    ];
+  }
+
+  if (type === "fork" || type === "off ramp" || type === "on ramp") {
+    return [{ angle: normalizeRadians(outgoing + (turn >= 0 ? -Math.PI * 0.36 : Math.PI * 0.36)), length: 0.9 }];
+  }
+
+  if (type === "merge") {
+    return [{ angle: normalizeRadians(incoming + (turn >= 0 ? Math.PI * 0.34 : -Math.PI * 0.34)), length: 0.82 }];
+  }
+
+  if (modifier.includes("left")) {
+    return [
+      { angle: straight, length: 1 },
+      { angle: right, length: 0.72 }
+    ];
+  }
+
+  if (modifier.includes("right")) {
+    return [
+      { angle: straight, length: 1 },
+      { angle: left, length: 0.72 }
+    ];
+  }
+
+  if (modifier.includes("uturn")) {
+    return [
+      { angle: left, length: 0.72 },
+      { angle: right, length: 0.72 }
+    ];
+  }
+
+  return [
+    { angle: left, length: 0.82 },
+    { angle: right, length: 0.82 }
+  ];
 }
 
 function fallbackPreview(snapshot: GuidanceSnapshot): Array<{ x: number; y: number }> {
