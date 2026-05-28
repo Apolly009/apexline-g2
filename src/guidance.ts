@@ -29,6 +29,7 @@ export type GuidanceSnapshot = {
   exitNumber?: number | null;
   turnAngleDegrees?: number;
   routePreview?: RoutePreviewPoint[];
+  showSideRoads?: boolean;
 };
 
 export type PositionSample = {

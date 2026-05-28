@@ -419,6 +419,77 @@ h1 {
   margin-top: 16px;
 }
 
+.settings-panel {
+  margin-top: 16px;
+  padding: 16px 18px;
+}
+
+.settings-panel summary {
+  cursor: pointer;
+  color: #f7f6ef;
+  font-size: 1.05rem;
+  font-weight: 900;
+  list-style: none;
+  text-transform: uppercase;
+}
+
+.settings-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-panel summary::after {
+  content: "+";
+  float: right;
+  color: var(--line);
+}
+
+.settings-panel details[open] summary::after {
+  content: "-";
+}
+
+.settings-grid {
+  display: grid;
+  gap: 14px;
+  padding-top: 16px;
+}
+
+.setting-group {
+  display: grid;
+  gap: 8px;
+}
+
+.setting-group > span,
+.setting-toggle > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.segmented-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.setting-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 48px;
+  border: 1px solid rgba(243, 244, 239, 0.14);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(243, 244, 239, 0.05);
+}
+
+.setting-toggle input {
+  width: 42px;
+  height: 24px;
+  accent-color: var(--line);
+}
+
 .guidance-card,
 .stats {
   display: flex;

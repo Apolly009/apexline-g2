@@ -21,6 +21,7 @@ type AppState = {
   mode: TravelMode;
   unitSystem: UnitSystem;
   guidanceView: "arrows" | "map";
+  showSideRoads: boolean;
   activeSearchField: "origin" | "destination" | null;
   bridgeConnected: boolean;
   locating: boolean;
@@ -52,11 +53,13 @@ type AppState = {
 const FAVORITES_STORAGE_KEY = "apexline-favorites";
 const DEV_TOOLS_STORAGE_KEY = "apexline-dev-tools";
 const UNIT_SYSTEM_STORAGE_KEY = "apexline-unit-system";
+const SIDE_ROADS_STORAGE_KEY = "apexline-side-roads";
 
 const state: AppState = {
   mode: "motorcycle",
   unitSystem: loadUnitSystem(),
   guidanceView: "arrows",
+  showSideRoads: loadSideRoadsEnabled(),
   activeSearchField: null,
   bridgeConnected: false,
   locating: false,
@@ -154,6 +157,11 @@ function applyLaunchOptions(): void {
     saveUnitSystem();
   }
 
+  if (params.has("sideRoads")) {
+    state.showSideRoads = params.get("sideRoads") !== "0";
+    saveSideRoadsEnabled();
+  }
+
   if (params.has("devTools")) {
     state.devToolsEnabled = params.get("devTools") !== "0";
     saveDevToolsEnabled();
@@ -188,15 +196,6 @@ function render(): void {
         <p class="mode-note">
           Moto gives earlier turn prep and a wider off-route buffer; Drive keeps prompts tighter for spirited road driving.
         </p>
-        <div class="unit-row" role="group" aria-label="Distance units">
-          <button class="unit-mode ${state.unitSystem === "imperial" ? "active" : ""}" data-unit-system="imperial" type="button">Imperial</button>
-          <button class="unit-mode ${state.unitSystem === "metric" ? "active" : ""}" data-unit-system="metric" type="button">Metric</button>
-        </div>
-        <div class="view-row" role="group" aria-label="Glasses guidance style">
-          <button class="view-mode ${state.guidanceView === "arrows" ? "active" : ""}" data-guidance-view="arrows" type="button">Arrows</button>
-          <button class="view-mode ${state.guidanceView === "map" ? "active" : ""}" data-guidance-view="map" type="button">Map</button>
-        </div>
-
         <div class="route-builder" aria-label="Route planner">
           <div class="route-rail" aria-hidden="true">
             <span class="origin-dot"></span>
@@ -268,6 +267,32 @@ function render(): void {
         <article class="stats" id="stats-card">
           ${renderStats()}
         </article>
+      </section>
+
+      <section class="panel settings-panel" aria-label="Settings">
+        <details>
+          <summary>Settings</summary>
+          <div class="settings-grid">
+            <div class="setting-group">
+              <span>Glasses view</span>
+              <div class="segmented-row" role="group" aria-label="Glasses guidance style">
+                <button class="view-mode ${state.guidanceView === "arrows" ? "active" : ""}" data-guidance-view="arrows" type="button">Arrows</button>
+                <button class="view-mode ${state.guidanceView === "map" ? "active" : ""}" data-guidance-view="map" type="button">Map</button>
+              </div>
+            </div>
+            <div class="setting-group">
+              <span>Units</span>
+              <div class="segmented-row" role="group" aria-label="Distance units">
+                <button class="unit-mode ${state.unitSystem === "imperial" ? "active" : ""}" data-unit-system="imperial" type="button">Imperial</button>
+                <button class="unit-mode ${state.unitSystem === "metric" ? "active" : ""}" data-unit-system="metric" type="button">Metric</button>
+              </div>
+            </div>
+            <label class="setting-toggle">
+              <input type="checkbox" data-side-roads ${state.showSideRoads ? "checked" : ""} />
+              <span>Intersection side roads</span>
+            </label>
+          </div>
+        </details>
       </section>
     </section>
   `;
@@ -514,7 +539,9 @@ function renderGuidancePanel(): string {
     `;
   }
 
-  const snapshot = makeGuidanceSnapshot(state.route, state.position, state.mode, state.nextStepIndex, state.unitSystem);
+  const snapshot = withDisplayPreferences(
+    makeGuidanceSnapshot(state.route, state.position, state.mode, state.nextStepIndex, state.unitSystem)
+  );
   if (state.guidanceView === "map") {
     return `
       <div class="mini-map-visual" aria-hidden="true">
@@ -564,6 +591,13 @@ function bindEvents(): void {
       void updateGlass();
       render();
     });
+  });
+
+  document.querySelector<HTMLInputElement>("[data-side-roads]")?.addEventListener("change", (event) => {
+    state.showSideRoads = (event.target as HTMLInputElement).checked;
+    saveSideRoadsEnabled();
+    void updateGlass();
+    render();
   });
 
   document.querySelector<HTMLElement>("#app-title")?.addEventListener("click", () => {
@@ -837,6 +871,14 @@ function loadUnitSystem(): UnitSystem {
 
 function saveUnitSystem(): void {
   window.localStorage.setItem(UNIT_SYSTEM_STORAGE_KEY, state.unitSystem);
+}
+
+function loadSideRoadsEnabled(): boolean {
+  return window.localStorage.getItem(SIDE_ROADS_STORAGE_KEY) === "1";
+}
+
+function saveSideRoadsEnabled(): void {
+  window.localStorage.setItem(SIDE_ROADS_STORAGE_KEY, state.showSideRoads ? "1" : "0");
 }
 
 function scheduleSearch(): void {
@@ -1266,9 +1308,18 @@ function currentSnapshot(): GuidanceSnapshot {
     return makeIdleSnapshot("Route ready to build");
   }
 
-  const snapshot = makeGuidanceSnapshot(state.route, state.position, state.mode, state.nextStepIndex, state.unitSystem);
+  const snapshot = withDisplayPreferences(
+    makeGuidanceSnapshot(state.route, state.position, state.mode, state.nextStepIndex, state.unitSystem)
+  );
   state.nextStepIndex = snapshot.nextStepIndex;
   return state.guidanceView === "map" ? mapGlassesSnapshot(snapshot) : snapshot;
+}
+
+function withDisplayPreferences(snapshot: GuidanceSnapshot): GuidanceSnapshot {
+  return {
+    ...snapshot,
+    showSideRoads: state.showSideRoads
+  };
 }
 
 function routeReadyGlassesSnapshot(): GuidanceSnapshot {
