@@ -31,8 +31,7 @@ guidance tuned for motorcycle and spirited car use.
     screen.
   - Long press opens compact glasses settings for guidance view, ride mode,
     units, and complex-intersection side roads when the host sends a long/hold
-    event. Current Even Hub SDK builds expose click, double-click, and scroll
-    events; long press still needs hardware validation.
+    event. Double press on the startup screen is a fallback settings shortcut.
 
 ## Run locally
 
@@ -59,6 +58,9 @@ Developer tools are hidden in the normal phone UI. Tap the Apexline title five
 times to toggle them for the current session, or open with `?devTools=1`.
 They reset to hidden on every fresh app load. Dev launch flags remain available
 for simulator testing, for example `?devRoute=1&view=map&autoDrive=1`.
+With dev tools enabled, the phone/browser window also accepts keyboard gesture
+testing: Enter is click, ArrowUp/ArrowDown are swipes, D or Escape is double
+press, and L is long press.
 
 ## Build and pack
 

@@ -59,6 +59,8 @@ type AppState = {
   error: string | null;
 };
 
+type GlassAction = "press" | "double" | "up" | "down" | "long";
+
 const FAVORITES_STORAGE_KEY = "apexline-favorites";
 const UNIT_SYSTEM_STORAGE_KEY = "apexline-unit-system";
 const SIDE_ROADS_STORAGE_KEY = "apexline-side-roads";
@@ -140,11 +142,13 @@ let devDriveDistanceMeters = 0;
 let lastDevDriveAt = 0;
 let titleTapCount = 0;
 let titleTapResetTimer: number | null = null;
+let devGlassesKeyboardBound = false;
 
 void boot();
 
 async function boot(): Promise<void> {
   applyLaunchOptions();
+  installDevGlassHarness();
   render();
   state.bridgeConnected = await glassDisplay.connect(handleGlassInput);
   await updateGlass();
@@ -155,6 +159,65 @@ async function boot(): Promise<void> {
     }
   }
   render();
+}
+
+function installDevGlassHarness(): void {
+  const devWindow = window as Window & {
+    __apexlineDevGlassInput?: (action: GlassAction) => void;
+    __apexlineDebugState?: () => Record<string, unknown>;
+  };
+
+  devWindow.__apexlineDevGlassInput = (action) => {
+    if (!state.devToolsEnabled) {
+      return;
+    }
+
+    runDevGlassInput(action);
+  };
+  devWindow.__apexlineDebugState = devDebugSnapshot;
+  document.addEventListener("apexline-dev-glass-input", (event) => {
+    const action = (event as CustomEvent<unknown>).detail;
+    if (!state.devToolsEnabled || !isGlassAction(action)) {
+      return;
+    }
+
+    runDevGlassInput(action);
+  });
+}
+
+function devDebugSnapshot(): Record<string, unknown> {
+  return {
+    devToolsEnabled: state.devToolsEnabled,
+    glassesScreen: state.glassesScreen,
+    guidanceView: state.guidanceView,
+    mode: state.mode,
+    unitSystem: state.unitSystem,
+    showSideRoads: state.showSideRoads,
+    settingsIndex: state.glassesSettingsIndex,
+    startFavoriteIndex: state.glassesStartFavoriteIndex,
+    destinationFavoriteIndex: state.glassesDestinationFavoriteIndex,
+    selectedOrigin: state.glassesSelectedOrigin?.label ?? null,
+    selectedDestination: state.selectedPlace?.label ?? null,
+    routeReady: Boolean(state.route),
+    navigating: state.navigating,
+    devDriving: state.devDriving
+  };
+}
+
+function syncDevDebugState(): void {
+  if (document.body) {
+    document.body.dataset.apexlineDebugState = JSON.stringify(devDebugSnapshot());
+  }
+}
+
+function runDevGlassInput(action: GlassAction): void {
+  handleGlassInput(action);
+  syncDevDebugState();
+  window.setTimeout(syncDevDebugState, 0);
+}
+
+function isGlassAction(action: unknown): action is GlassAction {
+  return action === "press" || action === "double" || action === "up" || action === "down" || action === "long";
 }
 
 function shouldAutoRunDevRoute(): boolean {
@@ -302,6 +365,7 @@ function render(): void {
 
   bindEvents();
   syncMap();
+  syncDevDebugState();
 }
 
 function updateResultsSlot(): void {
@@ -313,6 +377,7 @@ function updateResultsSlot(): void {
   resultsSlot.innerHTML = renderResults();
   bindResultEvents();
   bindFavoriteEvents();
+  bindDevGlassesKeyboard();
 }
 
 function updateOriginResultsSlot(): void {
@@ -710,6 +775,7 @@ function bindEvents(): void {
   bindResultEvents();
   bindOriginResultEvents();
   bindFavoriteEvents();
+  bindDevGlassesKeyboard();
 
   document.querySelector<HTMLButtonElement>("#start-nav")?.addEventListener("click", () => {
     startNavigation();
@@ -742,6 +808,56 @@ function bindEvents(): void {
     updateStatsCard();
     updateDevSpeedReadout();
   });
+}
+
+function bindDevGlassesKeyboard(): void {
+  if (devGlassesKeyboardBound) {
+    return;
+  }
+
+  devGlassesKeyboardBound = true;
+  document.addEventListener("keydown", (event) => {
+    if (!state.devToolsEnabled || isTextEntryTarget(event.target)) {
+      return;
+    }
+
+    const action = devKeyToGlassAction(event.key);
+    if (!action) {
+      return;
+    }
+
+    event.preventDefault();
+    runDevGlassInput(action);
+  });
+}
+
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tagName = target.tagName.toLowerCase();
+  return tagName === "input" || tagName === "textarea" || target.isContentEditable;
+}
+
+function devKeyToGlassAction(key: string): GlassAction | null {
+  if (key === "Enter") {
+    return "press";
+  }
+  if (key === "ArrowUp") {
+    return "up";
+  }
+  if (key === "ArrowDown") {
+    return "down";
+  }
+  if (key.toLowerCase() === "d" || key === "Escape") {
+    return "double";
+  }
+  if (key.toLowerCase() === "l") {
+    return "long";
+  }
+
+  return null;
 }
 
 function setTravelMode(mode: TravelMode): void {
@@ -1627,7 +1743,7 @@ function mapGlassesSnapshot(snapshot: GuidanceSnapshot): GuidanceSnapshot {
   };
 }
 
-function handleGlassInput(action: "press" | "double" | "up" | "down" | "long"): void {
+function handleGlassInput(action: GlassAction): void {
   if (action === "long") {
     state.glassesScreen = state.glassesScreen === "settings" ? "home" : "settings";
     void updateGlass();
@@ -1663,6 +1779,13 @@ function handleGlassInput(action: "press" | "double" | "up" | "down" | "long"): 
 
   if (state.glassesScreen === "routeReady") {
     handleRouteReadyInput(action);
+    return;
+  }
+
+  if (action === "double") {
+    state.glassesScreen = "settings";
+    void updateGlass();
+    render();
     return;
   }
 

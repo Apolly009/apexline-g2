@@ -32,6 +32,7 @@ export class GlassDisplay {
   private bridge: Bridge | null = null;
   private ready = false;
   private lastContent = "";
+  private lastListSelectIndex = 0;
 
   async connect(onInput: InputHandler): Promise<boolean> {
     try {
@@ -39,6 +40,7 @@ export class GlassDisplay {
       this.bridge.onEvenHubEvent((event) => {
         const eventType = event.textEvent?.eventType ?? event.listEvent?.eventType ?? event.sysEvent?.eventType;
         const normalizedEventType = OsEventTypeList.fromJson(eventType) ?? eventType;
+        const listSelectIndex = event.listEvent?.currentSelectItemIndex;
         const rawEventType = [
           (event as { textEvent?: { eventType?: unknown } }).textEvent?.eventType,
           (event as { listEvent?: { eventType?: unknown } }).listEvent?.eventType,
@@ -54,6 +56,12 @@ export class GlassDisplay {
         } else if (normalizedEventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
           onInput("down");
         } else if (normalizedEventType === OsEventTypeList.CLICK_EVENT || eventType == null) {
+          const inferredScroll = this.inferScrollFromListIndex(listSelectIndex);
+          if (inferredScroll) {
+            onInput(inferredScroll);
+            return;
+          }
+
           onInput("press");
         }
       });
@@ -98,7 +106,8 @@ export class GlassDisplay {
       return false;
     }
 
-    const rows = listRowsForGlass(content);
+    const rows = listRowsForGlass();
+    this.lastListSelectIndex = 0;
     const mainList = new ListContainerProperty({
       xPosition: 0,
       yPosition: 0,
@@ -155,6 +164,23 @@ export class GlassDisplay {
       await this.updateImage(snapshot, content);
     }
     return rebuilt;
+  }
+
+  private inferScrollFromListIndex(index: number | undefined): "up" | "down" | null {
+    if (typeof index !== "number" || !Number.isFinite(index)) {
+      return null;
+    }
+
+    const previousIndex = this.lastListSelectIndex;
+    this.lastListSelectIndex = index;
+    if (index > previousIndex) {
+      return "down";
+    }
+    if (index < previousIndex) {
+      return "up";
+    }
+
+    return null;
   }
 
   private async updateImage(snapshot: GuidanceSnapshot | undefined, fallbackContent: string): Promise<void> {
@@ -230,8 +256,8 @@ function glassRenderKey(snapshot: GuidanceSnapshot, content: string): string {
   ].join("\n");
 }
 
-function listRowsForGlass(content: string): string[] {
-  return content.trim().length > 0 ? [" "] : [" "];
+function listRowsForGlass(): string[] {
+  return [" ", " ", " "];
 }
 
 function renderGlassImageTiles(
