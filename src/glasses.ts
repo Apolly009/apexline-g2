@@ -339,7 +339,7 @@ function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSna
 
   drawHudHint(context, snapshot);
   if (snapshot.arrowLayout === "bottom") {
-    drawRouteCue(context, snapshot, 212, 118, 152, 128);
+    drawRouteCue(context, snapshot, 212, 186, 152, 86);
   } else {
     drawRouteCue(context, snapshot, 44, 58, 168, 180);
   }
