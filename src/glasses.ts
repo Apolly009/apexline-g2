@@ -325,7 +325,6 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
     return;
   }
 
-  drawMapBackdrop(context);
   drawPreviewRoute(context, snapshot, 92, 54, 392, 206, true);
   drawVehicleMarker(context, GLASS_WIDTH / 2, 246);
 
@@ -343,7 +342,7 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
   context.fillStyle = HUD_PRIMARY;
   context.font = "bold 15px system-ui, sans-serif";
   context.textAlign = "right";
-  context.fillText(formatPrimaryAction(snapshot.secondary, snapshot.arrow), 540, 42);
+  context.fillText(formatPrimaryAction(snapshot.primary, snapshot.arrow), 540, 42);
 
   context.fillStyle = HUD_MUTED;
   context.font = "bold 11px system-ui, sans-serif";
@@ -640,10 +639,6 @@ function wrapMenuText(
 }
 
 function drawHudHeader(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
-  context.fillStyle = "rgba(124, 255, 158, 0.78)";
-  context.fillRect(0, 0, GLASS_WIDTH, 4);
-  context.fillStyle = "rgba(247, 210, 99, 0.92)";
-  context.fillRect(0, 4, 86, 2);
   context.fillStyle = HUD_MUTED;
   context.font = "bold 13px system-ui, sans-serif";
   context.textAlign = "left";
@@ -672,27 +667,6 @@ function drawHudRule(context: CanvasRenderingContext2D, x: number, y: number, wi
   context.moveTo(x, y);
   context.lineTo(x + width * 0.72, y);
   context.stroke();
-}
-
-function drawMapBackdrop(context: CanvasRenderingContext2D): void {
-  context.strokeStyle = "rgba(124, 255, 158, 0.055)";
-  context.lineWidth = 1;
-  for (let offset = -2; offset <= 2; offset += 1) {
-    const x = GLASS_WIDTH / 2 + offset * 74;
-    context.beginPath();
-    context.moveTo(x, 70);
-    context.lineTo(x + offset * 18, 266);
-    context.stroke();
-  }
-
-  context.strokeStyle = "rgba(221, 255, 227, 0.045)";
-  for (let index = 0; index < 4; index += 1) {
-    const y = 102 + index * 42;
-    context.beginPath();
-    context.moveTo(64, y);
-    context.lineTo(512, y);
-    context.stroke();
-  }
 }
 
 function drawSpeedReadout(
@@ -875,7 +849,7 @@ function drawPreviewRoute(
   const points = snapshot.routePreview && snapshot.routePreview.length > 1
     ? snapshot.routePreview
     : fallbackPreview(snapshot);
-  const transform = mapMode ? previewStretchTransform(points) : identityPreviewTransform;
+  const transform = identityPreviewTransform;
   const toPixel = (point: { x: number; y: number }): [number, number] => [
     x + width / 2 + point.x * width * 0.44,
     y + height - point.y * height * 0.92
@@ -948,25 +922,6 @@ function fallbackPreview(snapshot: GuidanceSnapshot): Array<{ x: number; y: numb
 
 function identityPreviewTransform(point: { x: number; y: number }): { x: number; y: number } {
   return point;
-}
-
-function previewStretchTransform(points: Array<{ x: number; y: number }>): (point: { x: number; y: number }) => { x: number; y: number } {
-  const minY = points[0]?.y ?? 0;
-  const maxY = Math.max(...points.map((point) => point.y));
-  const spanY = maxY - minY;
-  const maxAbsX = Math.max(0.2, ...points.map((point) => Math.abs(point.x)));
-
-  if (spanY < 0.18) {
-    return (point) => ({
-      x: clampNumber(point.x / maxAbsX * 0.55, -1, 1),
-      y: clampNumber(point.y / 0.18, 0, 1)
-    });
-  }
-
-  return (point) => ({
-    x: clampNumber(point.x / maxAbsX * 0.62, -1, 1),
-    y: clampNumber((point.y - minY) / spanY, 0, 1)
-  });
 }
 
 function sideRoadWidth(roadClass: "major" | "medium" | "minor", mapMode: boolean): number {
@@ -1170,10 +1125,6 @@ function stripLeadingArrow(value: string, arrow: string): string {
 
 function trimImageLine(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
-}
-
-function clampNumber(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
