@@ -10,6 +10,7 @@ import {
   waitForEvenAppBridge
 } from "@evenrealities/even_hub_sdk";
 import type { GuidanceHazardAlert, GuidanceSnapshot } from "./guidance";
+import blitzerLogoUrl from "./assets/blitzer-logo.png";
 
 type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>;
 type InputHandler = (action: "press" | "double" | "up" | "down" | "long") => void;
@@ -32,6 +33,9 @@ const HUD_MUTED = "#82aa8d";
 const HUD_FAINT = "rgba(124, 255, 158, 0.2)";
 const HUD_AMBER = "#f7d263";
 const MENU_X = 112;
+const BLITZER_LOGO_IMAGE = new Image();
+BLITZER_LOGO_IMAGE.src = blitzerLogoUrl;
+const BLITZER_LOGO_SIZE = 256;
 const SPLASH_ROUTE_ROTATION_DEGREES = 45;
 const SPLASH_ROUTE_SCALE = 2.05;
 const SPLASH_ROUTE_CENTER: Point = [288, 148];
@@ -1178,52 +1182,12 @@ function drawStandaloneBlitzerSpeed(context: CanvasRenderingContext2D, speedLabe
 }
 
 function drawBlitzerLogo(context: CanvasRenderingContext2D, x: number, y: number, scale: number): void {
-  context.save();
-  context.translate(x, y);
-  context.scale(scale, scale);
-  context.fillStyle = "rgba(124, 255, 158, 0.78)";
-  drawBlitzerChevron(context, 0, -66, 128, 50, 15);
-  drawBlitzerChevron(context, 0, -14, 174, 66, 21);
-  drawBlitzerChevron(context, 0, 58, 236, 92, 30);
-  context.restore();
-}
+  if (!BLITZER_LOGO_IMAGE.complete || !BLITZER_LOGO_IMAGE.naturalWidth) {
+    return;
+  }
 
-function drawBlitzerChevron(
-  context: CanvasRenderingContext2D,
-  centerX: number,
-  apexY: number,
-  width: number,
-  height: number,
-  thickness: number
-): void {
-  const half = width / 2;
-  const shoulderY = apexY + height * 0.42;
-  const baseY = apexY + height;
-  const innerApexY = apexY + thickness;
-  const innerShoulderY = shoulderY + thickness * 0.58;
-  const sideInset = thickness * 0.78;
-
-  context.beginPath();
-  context.moveTo(centerX, apexY);
-  context.lineTo(centerX + half * 0.83, shoulderY);
-  context.lineTo(centerX + half, baseY);
-  context.lineTo(centerX, innerApexY);
-  context.lineTo(centerX - half, baseY);
-  context.lineTo(centerX - half * 0.83, shoulderY);
-  context.closePath();
-  context.fill();
-
-  context.fillStyle = "#000000";
-  context.beginPath();
-  context.moveTo(centerX, innerApexY + thickness * 0.35);
-  context.lineTo(centerX + half - sideInset, innerShoulderY + thickness * 0.35);
-  context.lineTo(centerX + half - sideInset * 1.15, innerShoulderY + thickness * 1.2);
-  context.lineTo(centerX, innerApexY + thickness * 1.45);
-  context.lineTo(centerX - half + sideInset * 1.15, innerShoulderY + thickness * 1.2);
-  context.lineTo(centerX - half + sideInset, innerShoulderY + thickness * 0.35);
-  context.closePath();
-  context.fill();
-  context.fillStyle = "rgba(124, 255, 158, 0.78)";
+  const size = BLITZER_LOGO_SIZE * scale;
+  context.drawImage(BLITZER_LOGO_IMAGE, x - size / 2, y - size / 2, size, size);
 }
 
 function drawSpeedLimitSign(
