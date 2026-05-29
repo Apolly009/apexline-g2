@@ -1181,29 +1181,49 @@ function drawBlitzerLogo(context: CanvasRenderingContext2D, x: number, y: number
   context.save();
   context.translate(x, y);
   context.scale(scale, scale);
-  context.strokeStyle = "rgba(124, 255, 158, 0.78)";
-  context.lineWidth = 13;
-  context.lineCap = "round";
-  context.lineJoin = "round";
-
-  for (const [offset, width] of [[0, 72], [30, 96], [64, 126]] as const) {
-    const left = -width / 2;
-    const right = width / 2;
-    const centerY = offset - 32;
-    context.beginPath();
-    context.moveTo(left, centerY - 15);
-    context.lineTo(0, centerY + 4);
-    context.lineTo(right, centerY - 15);
-    context.stroke();
-  }
-
-  context.strokeStyle = "rgba(124, 255, 158, 0.26)";
-  context.lineWidth = 5;
-  context.beginPath();
-  context.moveTo(-76, 48);
-  context.lineTo(76, 48);
-  context.stroke();
+  context.fillStyle = "rgba(124, 255, 158, 0.78)";
+  drawBlitzerChevron(context, 0, -66, 128, 50, 15);
+  drawBlitzerChevron(context, 0, -14, 174, 66, 21);
+  drawBlitzerChevron(context, 0, 58, 236, 92, 30);
   context.restore();
+}
+
+function drawBlitzerChevron(
+  context: CanvasRenderingContext2D,
+  centerX: number,
+  apexY: number,
+  width: number,
+  height: number,
+  thickness: number
+): void {
+  const half = width / 2;
+  const shoulderY = apexY + height * 0.42;
+  const baseY = apexY + height;
+  const innerApexY = apexY + thickness;
+  const innerShoulderY = shoulderY + thickness * 0.58;
+  const sideInset = thickness * 0.78;
+
+  context.beginPath();
+  context.moveTo(centerX, apexY);
+  context.lineTo(centerX + half * 0.83, shoulderY);
+  context.lineTo(centerX + half, baseY);
+  context.lineTo(centerX, innerApexY);
+  context.lineTo(centerX - half, baseY);
+  context.lineTo(centerX - half * 0.83, shoulderY);
+  context.closePath();
+  context.fill();
+
+  context.fillStyle = "#000000";
+  context.beginPath();
+  context.moveTo(centerX, innerApexY + thickness * 0.35);
+  context.lineTo(centerX + half - sideInset, innerShoulderY + thickness * 0.35);
+  context.lineTo(centerX + half - sideInset * 1.15, innerShoulderY + thickness * 1.2);
+  context.lineTo(centerX, innerApexY + thickness * 1.45);
+  context.lineTo(centerX - half + sideInset * 1.15, innerShoulderY + thickness * 1.2);
+  context.lineTo(centerX - half + sideInset, innerShoulderY + thickness * 0.35);
+  context.closePath();
+  context.fill();
+  context.fillStyle = "rgba(124, 255, 158, 0.78)";
 }
 
 function drawSpeedLimitSign(
