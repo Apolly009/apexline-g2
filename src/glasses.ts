@@ -509,6 +509,8 @@ function drawIdleImage(
     drawRouteReadyMenu(context, primary, secondary, tertiary);
   } else if (title === "Settings") {
     drawSettingsMenu(context, primary, secondary, snapshot?.hint ?? "");
+  } else if (title === "Speed") {
+    drawSpeedOnlyMenu(context, primary, secondary, tertiary, snapshot?.hint ?? "");
   } else {
     drawHomeMenu(context, primary, secondary, tertiary, snapshot?.hint ?? "");
   }
@@ -965,6 +967,31 @@ function drawSettingsMenu(
   context.fillText(trimImageLine(secondary, 22), 32, 158);
 
   drawTinyHint(context, hint, 32, 270);
+}
+
+function drawSpeedOnlyMenu(
+  context: CanvasRenderingContext2D,
+  primary: string,
+  secondary: string,
+  tertiary: string,
+  hint: string
+): void {
+  drawMenuChrome(context, "Speed", "");
+  context.textAlign = "right";
+  context.fillStyle = HUD_PRIMARY;
+  context.font = "bold 58px system-ui, sans-serif";
+  context.fillText(trimImageLine(primary, 10), 532, 156);
+
+  context.fillStyle = HUD_MUTED;
+  context.font = "bold 13px system-ui, sans-serif";
+  context.fillText(trimImageLine(tertiary.toUpperCase(), 16), 532, 190);
+
+  context.textAlign = "left";
+  context.fillStyle = HUD_TEXT;
+  context.font = "bold 18px system-ui, sans-serif";
+  context.fillText(trimImageLine(secondary, 22), 40, 154);
+
+  drawTinyHint(context, hint, 40, 270);
 }
 
 function drawStatusPill(
