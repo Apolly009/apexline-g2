@@ -65,6 +65,7 @@ type AppState = {
   glassesHeadingStatus: string;
   glassesImuBaseZ: number | null;
   glassesHeadingAnchorDegrees: number | null;
+  lastGlassesImuSample: GlassImuSample | null;
   lastGlassesImuAt: number;
   locationSource: "gps" | "manual" | "simulated" | null;
   locationStatus: string;
@@ -134,6 +135,7 @@ const state: AppState = {
   glassesHeadingStatus: "Waiting for G2 motion",
   glassesImuBaseZ: null,
   glassesHeadingAnchorDegrees: null,
+  lastGlassesImuSample: null,
   lastGlassesImuAt: 0,
   locationSource: null,
   locationStatus: "No location yet",
@@ -231,6 +233,10 @@ function devDebugSnapshot(): Record<string, unknown> {
     guidanceView: state.guidanceView,
     headingSource: state.headingSource,
     headingStatus: headingStatusSummary(),
+    glassesHeadingDegrees: state.glassesHeadingDegrees,
+    glassesImuBaseZ: state.glassesImuBaseZ,
+    lastGlassesImuSample: state.lastGlassesImuSample,
+    lastGlassesImuAgeMs: state.lastGlassesImuAt > 0 ? Date.now() - state.lastGlassesImuAt : null,
     mode: state.mode,
     unitSystem: state.unitSystem,
     showSideRoads: state.showSideRoads,
@@ -1344,6 +1350,7 @@ function handleGlassesImu(sample: GlassImuSample): void {
   const anchor = currentHeadingAnchorDegrees(state.position ?? undefined);
   const now = Date.now();
   const staleImu = now - state.lastGlassesImuAt > 15000;
+  state.lastGlassesImuSample = sample;
 
   if (state.glassesImuBaseZ == null || state.glassesHeadingAnchorDegrees == null || staleImu) {
     state.glassesImuBaseZ = sample.z;

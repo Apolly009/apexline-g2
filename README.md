@@ -70,6 +70,9 @@ With dev tools enabled, the phone/browser window also accepts keyboard gesture
 testing: Enter is click, ArrowUp/ArrowDown are swipes, D or Escape is double
 press, and L is long press.
 
+See `docs/g2-heading-hardware-checklist.md` before treating G2-facing heading
+as real-device verified.
+
 ## Build and pack
 
 ```bash
