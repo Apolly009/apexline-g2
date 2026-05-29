@@ -9,7 +9,8 @@ import {
   TextContainerProperty,
   waitForEvenAppBridge
 } from "@evenrealities/even_hub_sdk";
-import type { GuidanceSnapshot } from "./guidance";
+import type { GuidanceHazardAlert, GuidanceSnapshot } from "./guidance";
+import blitzerLogoUrl from "./assets/blitzer-logo.png";
 
 type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>;
 type InputHandler = (action: "press" | "double" | "up" | "down" | "long") => void;
@@ -32,6 +33,9 @@ const HUD_MUTED = "#82aa8d";
 const HUD_FAINT = "rgba(124, 255, 158, 0.2)";
 const HUD_AMBER = "#f7d263";
 const MENU_X = 112;
+const BLITZER_LOGO_IMAGE = new Image();
+BLITZER_LOGO_IMAGE.src = blitzerLogoUrl;
+const BLITZER_LOGO_SIZE = 256;
 const SPLASH_ROUTE_ROTATION_DEGREES = 45;
 const SPLASH_ROUTE_SCALE = 2.05;
 const SPLASH_ROUTE_CENTER: Point = [288, 148];
@@ -260,11 +264,13 @@ function glassRenderKey(snapshot: GuidanceSnapshot, content: string): string {
     snapshot.turnAngleDegrees ?? "",
     snapshot.showSideRoads ? "side-roads" : "clean",
     snapshot.showSpeed ? snapshot.speedLabel ?? "speed" : "no-speed",
+    snapshot.hazardAlert
+      ? `${snapshot.hazardAlert.label}:${snapshot.hazardAlert.distanceLabel}:${snapshot.hazardAlert.speedLimitLabel}:${snapshot.hazardAlert.statusLabel}:${snapshot.hazardPulseFrame ?? 0}`
+      : "no-hazard",
     snapshot.nightMode ? "night" : "day",
     snapshot.arrowLayout ?? "left-arrow",
     snapshot.homeVariant ?? "",
     snapshot.splashFrame ?? "",
-    snapshot.splashTravelFrames ?? "",
     snapshot.transitionFrame ?? "",
     snapshot.pickerItems?.map((item) => `${item.selected ? ">" : ""}${item.badge ?? ""}:${item.label}`).join("|") ?? "",
     preview,
@@ -371,6 +377,11 @@ function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSna
   context.font = "bold 13px system-ui, sans-serif";
   context.textAlign = "right";
   context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 24), 534, 252);
+  if (snapshot.arrowLayout === "bottom") {
+    drawNavigationHazardAlert(context, snapshot, 42, 140);
+  } else {
+    drawNavigationHazardAlert(context, snapshot, 52, 46);
+  }
 }
 
 function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
@@ -413,6 +424,7 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
   context.font = "bold 13px system-ui, sans-serif";
   context.textAlign = "right";
   context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 24), 534, 252);
+  drawNavigationHazardAlert(context, snapshot, 42, 128);
 }
 
 function drawNightArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
@@ -425,6 +437,11 @@ function drawNightArrowImage(context: CanvasRenderingContext2D, snapshot: Guidan
   }
   context.restore();
   drawNightDataStack(context, snapshot);
+  if (snapshot.arrowLayout === "bottom") {
+    drawNavigationHazardAlert(context, snapshot, 42, 140, true);
+  } else {
+    drawNavigationHazardAlert(context, snapshot, 50, 38, true);
+  }
 }
 
 function drawNightMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
@@ -434,6 +451,7 @@ function drawNightMapImage(context: CanvasRenderingContext2D, snapshot: Guidance
   context.restore();
   drawNightVehicleMarker(context, GLASS_WIDTH / 2, 246);
   drawNightDataStack(context, snapshot);
+  drawNavigationHazardAlert(context, snapshot, 42, 128, true);
 }
 
 function drawIdleImage(
@@ -449,6 +467,11 @@ function drawIdleImage(
 
   if (snapshot?.homeVariant === "splash") {
     drawStartupSplash(context, snapshot.splashFrame ?? 0, snapshot.splashTravelFrames ?? 32);
+    return;
+  }
+
+  if (title === "Blitzer" || title === "Blitzer.de PRO bridge") {
+    drawBlitzerMenu(context, snapshot);
     return;
   }
 
@@ -746,6 +769,18 @@ function lerp(start: number, end: number, progress: number): number {
   return start + (end - start) * Math.max(0, Math.min(1, progress));
 }
 
+function drawBlitzerMenu(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot | undefined): void {
+  const alert = snapshot?.hazardAlert;
+  if (!alert) {
+    drawStandaloneBlitzerStandby(context, snapshot?.speedLabel ?? "--", Boolean(snapshot?.bridgeActive));
+    drawTinyHint(context, snapshot?.hint ?? "", 32, 270);
+    return;
+  }
+
+  drawStandaloneBlitzerAlert(context, alert, snapshot?.hazardPulseFrame ?? 0);
+  drawTinyHint(context, snapshot?.hint ?? "", 32, 270);
+}
+
 function drawMenuChrome(context: CanvasRenderingContext2D, title: string, hint: string): void {
   context.fillStyle = "rgba(124, 255, 158, 0.86)";
   context.fillRect(0, 0, GLASS_WIDTH, 4);
@@ -922,31 +957,6 @@ function drawSettingsMenu(
   drawTinyHint(context, hint, 32, 270);
 }
 
-function drawSpeedOnlyMenu(
-  context: CanvasRenderingContext2D,
-  primary: string,
-  secondary: string,
-  tertiary: string,
-  hint: string
-): void {
-  drawMenuChrome(context, "Speed", "");
-  context.textAlign = "right";
-  context.fillStyle = HUD_PRIMARY;
-  context.font = "bold 58px system-ui, sans-serif";
-  context.fillText(trimImageLine(primary, 10), 532, 156);
-
-  context.fillStyle = HUD_MUTED;
-  context.font = "bold 13px system-ui, sans-serif";
-  context.fillText(trimImageLine(tertiary.toUpperCase(), 16), 532, 190);
-
-  context.textAlign = "left";
-  context.fillStyle = HUD_TEXT;
-  context.font = "bold 18px system-ui, sans-serif";
-  context.fillText(trimImageLine(secondary, 22), 40, 154);
-
-  drawTinyHint(context, hint, 40, 270);
-}
-
 function drawStatusPill(
   context: CanvasRenderingContext2D,
   label: string,
@@ -1093,6 +1103,206 @@ function drawHudSpeedValue(
   context.font = "bold 18px system-ui, sans-serif";
   context.textAlign = align;
   context.fillText(snapshot.speedLabel, x, y);
+}
+
+function drawNavigationHazardAlert(
+  context: CanvasRenderingContext2D,
+  snapshot: GuidanceSnapshot,
+  x: number,
+  y: number,
+  muted = false
+): void {
+  const alert = snapshot.hazardAlert;
+  if (!alert) {
+    return;
+  }
+
+  drawBlitzerAlertStrip(context, alert, x, y, 154, 34, {
+    muted,
+    pulseFrame: snapshot.hazardPulseFrame ?? 0,
+    compact: true
+  });
+}
+
+function drawStandaloneBlitzerAlert(context: CanvasRenderingContext2D, alert: GuidanceHazardAlert, pulseFrame: number): void {
+  const activePulse = pulseFrame > 0 && pulseFrame < 22;
+  const wave = activePulse ? (Math.sin(pulseFrame * 0.75) + 1) / 2 : 0;
+  const intro = activePulse ? Math.max(0, 1 - pulseFrame / 22) : 0;
+  const scale = 1 + intro * wave * 0.025;
+
+  context.save();
+  context.translate(92, 126);
+  context.scale(scale, scale);
+  context.translate(-92, -126);
+
+  if (activePulse) {
+    context.strokeStyle = `rgba(124, 255, 158, ${0.18 + wave * 0.12})`;
+    context.lineWidth = 1.2;
+    roundRect(context, 52 - wave * 4, 82 - wave * 3, 80 + wave * 8, 94 + wave * 6, 9);
+    context.stroke();
+  }
+
+  drawSpeedLimitSign(context, 92, 116, 22, alert.speedLimitValue ?? alert.speedLimitLabel, alert.unitSystem);
+  context.fillStyle = HUD_TEXT;
+  context.font = "bold 14px system-ui, sans-serif";
+  context.textAlign = "center";
+  context.fillText(trimImageLine(alert.distanceLabel, 12), 92, 166);
+
+  context.fillStyle = HUD_PRIMARY;
+  context.font = "bold 10px system-ui, sans-serif";
+  context.fillText(activePulse ? "SPEED CAMERA" : "CAMERA", 92, 181);
+  context.fillText("AHEAD", 92, 194);
+  context.restore();
+
+  drawStandaloneBlitzerSpeed(context, alert.currentSpeedLabel ?? "--");
+}
+
+function drawStandaloneBlitzerStandby(context: CanvasRenderingContext2D, speedLabel: string, bridgeActive: boolean): void {
+  context.save();
+  if (bridgeActive) {
+    drawBlitzerLogo(context, 92, 126, 0.24);
+    context.fillStyle = "rgba(124, 255, 158, 0.62)";
+    context.font = "bold 12px system-ui, sans-serif";
+    context.textAlign = "center";
+    context.fillText("ARMED", 92, 176);
+  }
+
+  context.restore();
+  drawStandaloneBlitzerSpeed(context, speedLabel);
+}
+
+function drawStandaloneBlitzerSpeed(context: CanvasRenderingContext2D, speedLabel: string): void {
+  context.save();
+  context.textAlign = "right";
+  context.fillStyle = HUD_TEXT;
+  context.font = "bold 34px system-ui, sans-serif";
+  context.fillText(speedLabel, 534, 138);
+  context.restore();
+}
+
+function drawBlitzerAlertStrip(
+  context: CanvasRenderingContext2D,
+  alert: GuidanceHazardAlert,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  options: { muted?: boolean; pulseFrame?: number; compact?: boolean } = {}
+): void {
+  const frame = options.pulseFrame ?? 0;
+  const activePulse = frame > 0 && frame < 22;
+  const wave = activePulse ? (Math.sin(frame * 0.75) + 1) / 2 : 0;
+  const intro = activePulse ? Math.max(0, 1 - frame / 22) : 0;
+  const glow = intro * (0.05 + wave * 0.08);
+  const scale = 1 + intro * wave * 0.018;
+  const compact = options.compact ?? false;
+  const muted = options.muted ?? false;
+  const centerX = x + width / 2;
+  const centerY = y + height / 2;
+
+  context.save();
+  context.translate(centerX, centerY);
+  context.scale(scale, scale);
+  context.translate(-centerX, -centerY);
+
+  context.fillStyle = muted ? "rgba(124, 255, 158, 0.035)" : `rgba(124, 255, 158, ${0.075 + glow})`;
+  context.strokeStyle = muted ? "rgba(124, 255, 158, 0.36)" : `rgba(124, 255, 158, ${0.72 + intro * 0.2})`;
+  context.lineWidth = compact ? 1.25 : 1.6;
+  roundRect(context, x, y, width, height, compact ? 6 : 7);
+  context.fill();
+  context.stroke();
+
+  if (activePulse && !muted) {
+    context.strokeStyle = `rgba(124, 255, 158, ${0.16 + wave * 0.12})`;
+    context.lineWidth = 1;
+    roundRect(context, x - 3 - wave * 3, y - 3 - wave * 2, width + 6 + wave * 6, height + 6 + wave * 4, compact ? 8 : 10);
+    context.stroke();
+  }
+
+  drawSpeedLimitSign(context, x + (compact ? 18 : 26), centerY, compact ? 11 : 16, alert.speedLimitValue ?? alert.speedLimitLabel, alert.unitSystem);
+
+  context.fillStyle = muted ? "rgba(221, 255, 227, 0.68)" : HUD_TEXT;
+  context.font = `bold ${compact ? 12 : 15}px system-ui, sans-serif`;
+  context.textAlign = "left";
+  context.fillText(trimImageLine(alert.distanceLabel, compact ? 10 : 13), x + (compact ? 36 : 54), y + (compact ? 14 : 22));
+
+  context.fillStyle = muted ? "rgba(124, 255, 158, 0.58)" : HUD_PRIMARY;
+  context.font = `bold ${compact ? 10 : 11}px system-ui, sans-serif`;
+  const statusText = activePulse ? "SPEED CAMERA AHEAD" : alert.speedLimitLabel;
+  context.fillText(trimImageLine(statusText, compact ? 18 : 20), x + (compact ? 36 : 54), y + (compact ? 27 : 39));
+
+  context.fillStyle = muted ? "rgba(221, 255, 227, 0.72)" : HUD_TEXT;
+  context.font = `bold ${compact ? 12 : 16}px system-ui, sans-serif`;
+  context.textAlign = "right";
+  context.fillText(alert.currentSpeedLabel ?? "--", x + width - (compact ? 8 : 12), y + (compact ? 25 : 36));
+  context.restore();
+}
+
+function drawSpeedOnlyMenu(
+  context: CanvasRenderingContext2D,
+  primary: string,
+  secondary: string,
+  tertiary: string,
+  hint: string
+): void {
+  drawMenuChrome(context, "Speed", "");
+  context.textAlign = "right";
+  context.fillStyle = HUD_PRIMARY;
+  context.font = "bold 58px system-ui, sans-serif";
+  context.fillText(trimImageLine(primary, 10), 532, 156);
+
+  context.fillStyle = HUD_MUTED;
+  context.font = "bold 13px system-ui, sans-serif";
+  context.fillText(trimImageLine(tertiary.toUpperCase(), 16), 532, 190);
+
+  context.textAlign = "left";
+  context.fillStyle = HUD_TEXT;
+  context.font = "bold 18px system-ui, sans-serif";
+  context.fillText(trimImageLine(secondary, 22), 40, 154);
+
+  drawTinyHint(context, hint, 40, 270);
+}
+
+function drawBlitzerLogo(context: CanvasRenderingContext2D, x: number, y: number, scale: number): void {
+  if (!BLITZER_LOGO_IMAGE.complete || !BLITZER_LOGO_IMAGE.naturalWidth) {
+    return;
+  }
+
+  const size = BLITZER_LOGO_SIZE * scale;
+  context.drawImage(BLITZER_LOGO_IMAGE, x - size / 2, y - size / 2, size, size);
+}
+
+function drawSpeedLimitSign(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  label: string,
+  unitSystem: GuidanceHazardAlert["unitSystem"] = "metric"
+): void {
+  const match = label.match(/\d+/);
+  const value = match?.[0] ?? "?";
+  const compact = radius <= 12;
+  context.fillStyle = "#000000";
+  context.strokeStyle = HUD_PRIMARY;
+  context.lineWidth = compact ? 2 : 3;
+  if (unitSystem === "imperial") {
+    const width = radius * (compact ? 1.82 : 1.62);
+    const height = radius * (compact ? 1.95 : 1.86);
+    roundRect(context, x - width / 2, y - height / 2, width, height, compact ? 1.5 : 2);
+    context.fill();
+    context.stroke();
+  } else {
+    context.beginPath();
+    context.arc(x, y, radius, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+  }
+
+  context.fillStyle = HUD_PRIMARY;
+  context.font = `bold ${compact ? 10 : value.length > 2 ? 19 : 22}px system-ui, sans-serif`;
+  context.textAlign = "center";
+  context.fillText(value, x, y + (compact ? 4 : 7));
 }
 
 function drawRouteCue(

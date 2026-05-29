@@ -42,6 +42,9 @@ export type GuidanceSnapshot = {
   transitionFrame?: number;
   speedLabel?: string;
   pickerItems?: GuidancePickerItem[];
+  hazardAlert?: GuidanceHazardAlert;
+  hazardPulseFrame?: number;
+  bridgeActive?: boolean;
 };
 
 export type PositionSample = {
@@ -65,6 +68,16 @@ export type GuidancePickerItem = {
   badge?: string;
   selected?: boolean;
   disabled?: boolean;
+};
+
+export type GuidanceHazardAlert = {
+  label: string;
+  distanceLabel: string;
+  speedLimitLabel: string;
+  speedLimitValue?: string;
+  unitSystem?: UnitSystem;
+  currentSpeedLabel?: string;
+  statusLabel: string;
 };
 
 export function makeIdleSnapshot(status: string): GuidanceSnapshot {

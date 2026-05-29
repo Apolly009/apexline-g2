@@ -95,6 +95,18 @@ h1 {
   text-transform: uppercase;
 }
 
+.branch-tag {
+  display: inline-block;
+  transform: translateY(-0.45em);
+  border: 1px solid rgba(248, 223, 140, 0.68);
+  border-radius: 5px;
+  padding: 0.26em 0.42em 0.22em;
+  color: #f8df8c;
+  font-size: 0.18em;
+  line-height: 1;
+  vertical-align: middle;
+}
+
 .tagline {
   margin: 8px 0 0;
   color: #f8df8c;
@@ -504,6 +516,17 @@ h1 {
   background: rgba(232, 95, 63, 0.12);
 }
 
+.dev-route.secondary {
+  border-color: rgba(243, 244, 239, 0.28);
+  color: #d7dcdb;
+  background: rgba(243, 244, 239, 0.06);
+}
+
+.dev-route:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
 .dev-speed-control {
   display: grid;
   grid-column: 1 / -1;
@@ -679,6 +702,26 @@ h1 {
 .guidance-card p {
   margin: 0;
   color: #d7dcdb;
+}
+
+.blitzer-status {
+  margin-top: 8px;
+  color: #f8df8c;
+  font-weight: 700;
+}
+
+.blitzer-alert {
+  display: grid;
+  gap: 3px;
+  margin-top: 10px;
+  border: 1px solid rgba(241, 198, 75, 0.42);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(241, 198, 75, 0.1);
+}
+
+.blitzer-alert span {
+  color: #f8df8c;
 }
 
 .guidance-visual,
