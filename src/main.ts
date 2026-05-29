@@ -51,7 +51,8 @@ type AppState = {
   glassesStartFavoriteIndex: number;
   glassesDestinationFavoriteIndex: number;
   glassesSettingsIndex: number;
-  glassesScreen: "home" | "favoriteOrigin" | "favoriteDestination" | "routeReady" | "settings";
+  glassesHomeSelectionIndex: number;
+  glassesScreen: "splash" | "homeTransition" | "home" | "homeMenu" | "favoriteOrigin" | "favoriteDestination" | "routeReady" | "settings";
   glassesSelectedOrigin: PlaceResult | null;
   devToolsEnabled: boolean;
   selectedPlace: PlaceResult | null;
@@ -76,6 +77,11 @@ const SIDE_ROADS_STORAGE_KEY = "apexline-side-roads";
 const SPEED_DISPLAY_STORAGE_KEY = "apexline-speed-display";
 const CONTROL_HINTS_STORAGE_KEY = "apexline-control-hints";
 const NIGHT_MODE_STORAGE_KEY = "apexline-night-mode";
+const GLASSES_SPLASH_MS = 3450;
+const GLASSES_SPLASH_FRAME_MS = 90;
+const GLASSES_HOME_TRANSITION_MS = 650;
+const GLASSES_HOME_TRANSITION_FRAME_MS = 90;
+const GLASSES_POST_SPLASH_INPUT_GUARD_MS = 450;
 
 const state: AppState = {
   mode: "motorcycle",
@@ -110,7 +116,8 @@ const state: AppState = {
   glassesStartFavoriteIndex: 0,
   glassesDestinationFavoriteIndex: 0,
   glassesSettingsIndex: 0,
-  glassesScreen: "home",
+  glassesHomeSelectionIndex: 0,
+  glassesScreen: "splash",
   glassesSelectedOrigin: null,
   devToolsEnabled: false,
   selectedPlace: null,
@@ -158,6 +165,14 @@ let lastDevDriveAt = 0;
 let titleTapCount = 0;
 let titleTapResetTimer: number | null = null;
 let devGlassesKeyboardBound = false;
+let glassesSplashTimer: number | null = null;
+let glassesSplashAnimationTimer: number | null = null;
+let glassesHomeTransitionTimer: number | null = null;
+let glassesHomeTransitionAnimationTimer: number | null = null;
+let glassesSplashFrame = 0;
+let glassesHomeTransitionFrame = 0;
+let glassesSplashDurationMs = GLASSES_SPLASH_MS;
+let ignoreGlassInputUntil = 0;
 
 void boot();
 
@@ -167,6 +182,7 @@ async function boot(): Promise<void> {
   render();
   state.bridgeConnected = await glassDisplay.connect(handleGlassInput);
   await updateGlass();
+  scheduleGlassesSplashTransition();
   if (shouldAutoRunDevRoute()) {
     await buildDevTestRoute();
     if (shouldAutoStartDevDriving()) {
@@ -174,6 +190,97 @@ async function boot(): Promise<void> {
     }
   }
   render();
+}
+
+function scheduleGlassesSplashTransition(): void {
+  stopGlassesSplashTimers();
+  glassesSplashFrame = 0;
+
+  glassesSplashAnimationTimer = window.setInterval(() => {
+    if (state.glassesScreen !== "splash") {
+      stopGlassesSplashTimers();
+      return;
+    }
+
+    glassesSplashFrame += 1;
+    void updateGlass();
+  }, GLASSES_SPLASH_FRAME_MS);
+
+  glassesSplashTimer = window.setTimeout(() => {
+    stopGlassesSplashTimers();
+    if (state.glassesScreen !== "splash") {
+      return;
+    }
+
+    startGlassesHomeTransition();
+  }, glassesSplashDurationMs);
+}
+
+function dismissGlassesSplash(): void {
+  stopGlassesStartupTimers();
+
+  if (state.glassesScreen === "splash" || state.glassesScreen === "homeTransition") {
+    state.glassesScreen = "home";
+    ignoreGlassInputUntil = performance.now() + GLASSES_POST_SPLASH_INPUT_GUARD_MS;
+  }
+}
+
+function startGlassesHomeTransition(): void {
+  stopGlassesStartupTimers();
+  glassesHomeTransitionFrame = 0;
+  state.glassesScreen = "homeTransition";
+  void updateGlass();
+  render();
+
+  glassesHomeTransitionAnimationTimer = window.setInterval(() => {
+    if (state.glassesScreen !== "homeTransition") {
+      stopGlassesStartupTimers();
+      return;
+    }
+
+    glassesHomeTransitionFrame += 1;
+    void updateGlass();
+  }, GLASSES_HOME_TRANSITION_FRAME_MS);
+
+  glassesHomeTransitionTimer = window.setTimeout(() => {
+    stopGlassesStartupTimers();
+    if (state.glassesScreen !== "homeTransition") {
+      return;
+    }
+
+    state.glassesScreen = "home";
+    void updateGlass();
+    render();
+  }, GLASSES_HOME_TRANSITION_MS);
+}
+
+function stopGlassesStartupTimers(): void {
+  stopGlassesSplashTimers();
+  stopGlassesHomeTransitionTimers();
+}
+
+function stopGlassesSplashTimers(): void {
+  if (glassesSplashTimer != null) {
+    window.clearTimeout(glassesSplashTimer);
+    glassesSplashTimer = null;
+  }
+
+  if (glassesSplashAnimationTimer != null) {
+    window.clearInterval(glassesSplashAnimationTimer);
+    glassesSplashAnimationTimer = null;
+  }
+}
+
+function stopGlassesHomeTransitionTimers(): void {
+  if (glassesHomeTransitionTimer != null) {
+    window.clearTimeout(glassesHomeTransitionTimer);
+    glassesHomeTransitionTimer = null;
+  }
+
+  if (glassesHomeTransitionAnimationTimer != null) {
+    window.clearInterval(glassesHomeTransitionAnimationTimer);
+    glassesHomeTransitionAnimationTimer = null;
+  }
 }
 
 function installDevGlassHarness(): void {
@@ -211,6 +318,7 @@ function devDebugSnapshot(): Record<string, unknown> {
     showSpeed: state.showSpeed,
     showControlHints: state.showControlHints,
     settingsIndex: state.glassesSettingsIndex,
+    homeSelectionIndex: state.glassesHomeSelectionIndex,
     startFavoriteIndex: state.glassesStartFavoriteIndex,
     destinationFavoriteIndex: state.glassesDestinationFavoriteIndex,
     selectedOrigin: state.glassesSelectedOrigin?.label ?? null,
@@ -279,6 +387,11 @@ function applyLaunchOptions(): void {
 
   if (params.has("devTools")) {
     state.devToolsEnabled = params.get("devTools") !== "0";
+  }
+
+  const devSplashMs = Number(params.get("devSplashMs"));
+  if (Number.isFinite(devSplashMs) && devSplashMs >= 1000) {
+    glassesSplashDurationMs = Math.min(30000, devSplashMs);
   }
 }
 
@@ -1773,11 +1886,19 @@ async function updateGlass(): Promise<void> {
 }
 
 function currentSnapshot(): GuidanceSnapshot {
+  if (state.glassesScreen === "splash") {
+    return splashGlassesSnapshot();
+  }
+
   if (state.glassesScreen === "settings") {
     return glassesSettingsSnapshot();
   }
 
   if (!state.navigating) {
+    if (state.glassesScreen === "home" || state.glassesScreen === "homeMenu" || state.glassesScreen === "homeTransition") {
+      return homeMenuGlassesSnapshot();
+    }
+
     if (state.glassesScreen === "favoriteOrigin") {
       return favoriteGlassesSnapshot("origin");
     }
@@ -1790,11 +1911,11 @@ function currentSnapshot(): GuidanceSnapshot {
       return routeReadyGlassesSnapshot();
     }
 
-    return homeGlassesSnapshot();
+    return homeMenuGlassesSnapshot();
   }
 
   if (!state.route || !state.position) {
-    return homeGlassesSnapshot();
+    return homeMenuGlassesSnapshot();
   }
 
   const snapshot = withDisplayPreferences(
@@ -1836,25 +1957,50 @@ function routeReadyGlassesSnapshot(): GuidanceSnapshot {
   };
 }
 
-function homeGlassesSnapshot(): GuidanceSnapshot {
-  const hasFavorites = glassesPickerOptions("destination").length > 0;
-  const hasPhoneRoute = Boolean(state.position && state.selectedPlace);
-  const gpsStatus = hasPhoneRoute ? "Route ready" : state.position ? "GPS ready" : "No GPS connection";
-  const homeHint = state.showControlHints
-    ? hasFavorites || state.position ? "Up settings | Down favorites" : "Up settings"
-    : "";
+function splashGlassesSnapshot(): GuidanceSnapshot {
   return {
     active: false,
     title: "Apexline",
-    primary: gpsStatus,
-    secondary: hasPhoneRoute ? "Phone route ready" : hasFavorites ? "Favorites ready" : "No favorites",
-    tertiary: state.position ? "GPS ready" : "GPS unavailable",
-    hint: homeHint,
+    primary: "Ride the line",
+    secondary: "Drive the pass",
+    tertiary: "",
+    hint: "",
     arrow: "--",
     nextStepIndex: 0,
     distanceToStepMeters: 0,
     offRoute: false,
-    showControlHints: state.showControlHints
+    homeVariant: "splash",
+    splashFrame: glassesSplashFrame
+  };
+}
+
+function homeMenuGlassesSnapshot(): GuidanceSnapshot {
+  const hasFavorites = glassesPickerOptions("destination").length > 0;
+  const hasRoute = Boolean(state.position && state.selectedPlace);
+  const homeVariant = state.glassesScreen === "homeTransition" ? "transition" : "menu";
+  const navigationStatus = hasRoute
+    ? "Phone route ready"
+    : hasFavorites
+      ? "Start on phone or favorites"
+      : "Start navigation on phone";
+  return {
+    active: false,
+    title: "Choose Mode",
+    primary: "Apexline",
+    secondary: state.glassesHomeSelectionIndex === 0 ? navigationStatus : state.position ? "GPS ready" : "No GPS",
+    tertiary: "",
+    hint: state.showControlHints ? "Swipe move | Click select" : "",
+    arrow: "--",
+    nextStepIndex: 0,
+    distanceToStepMeters: 0,
+    offRoute: false,
+    showControlHints: state.showControlHints,
+    homeVariant,
+    transitionFrame: homeVariant === "transition" ? glassesHomeTransitionFrame : undefined,
+    pickerItems: [
+      { label: "Navigation", badge: hasRoute ? "READY" : hasFavorites ? "FAV" : state.position ? "GPS" : "WAIT", selected: state.glassesHomeSelectionIndex === 0 },
+      { label: "Settings", selected: state.glassesHomeSelectionIndex === 1 }
+    ]
   };
 }
 
@@ -1923,6 +2069,17 @@ function mapGlassesSnapshot(snapshot: GuidanceSnapshot): GuidanceSnapshot {
 }
 
 function handleGlassInput(action: GlassAction): void {
+  if (performance.now() < ignoreGlassInputUntil) {
+    return;
+  }
+
+  if (state.glassesScreen === "splash" || state.glassesScreen === "homeTransition") {
+    dismissGlassesSplash();
+    void updateGlass();
+    render();
+    return;
+  }
+
   if (action === "long" && !state.navigating) {
     state.glassesScreen = state.glassesScreen === "settings" ? "home" : "favoriteOrigin";
     void updateGlass();
@@ -1975,6 +2132,11 @@ function handleGlassInput(action: GlassAction): void {
     return;
   }
 
+  if (state.glassesScreen === "home" || state.glassesScreen === "homeMenu") {
+    handleHomeMenuInput(action);
+    return;
+  }
+
   if (action === "up") {
     state.glassesScreen = "settings";
     void updateGlass();
@@ -2003,6 +2165,42 @@ function handleGlassInput(action: GlassAction): void {
     return;
   }
 
+  void updateGlass();
+  render();
+}
+
+function handleHomeMenuInput(action: GlassAction): void {
+  if (action === "double") {
+    state.glassesScreen = "home";
+    void updateGlass();
+    render();
+    return;
+  }
+
+  if (action === "up" || action === "down") {
+    const direction = action === "up" ? -1 : 1;
+    state.glassesHomeSelectionIndex = (state.glassesHomeSelectionIndex + direction + 2) % 2;
+    void updateGlass();
+    return;
+  }
+
+  if (action !== "press") {
+    return;
+  }
+
+  if (state.glassesHomeSelectionIndex === 1) {
+    state.glassesScreen = "settings";
+    void updateGlass();
+    render();
+    return;
+  }
+
+  if (state.position && state.selectedPlace) {
+    startGlassesNavigation();
+    return;
+  }
+
+  state.glassesScreen = "favoriteOrigin";
   void updateGlass();
   render();
 }

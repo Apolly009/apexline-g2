@@ -35,6 +35,9 @@ export type GuidanceSnapshot = {
   showSpeed?: boolean;
   showControlHints?: boolean;
   nightMode?: boolean;
+  homeVariant?: "splash" | "transition" | "menu";
+  splashFrame?: number;
+  transitionFrame?: number;
   speedLabel?: string;
   pickerItems?: GuidancePickerItem[];
 };
