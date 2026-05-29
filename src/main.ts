@@ -22,6 +22,7 @@ type AppState = {
   mode: TravelMode;
   unitSystem: UnitSystem;
   guidanceView: "arrows" | "map";
+  headingSource: "travel" | "phone";
   showSideRoads: boolean;
   showSpeed: boolean;
   showControlHints: boolean;
@@ -57,6 +58,9 @@ type AppState = {
   selectedPlace: PlaceResult | null;
   route: RouteResult | null;
   position: PositionSample | null;
+  phoneHeadingDegrees: number | null;
+  phoneHeadingStatus: string;
+  lastPhoneHeadingAt: number;
   locationSource: "gps" | "manual" | "simulated" | null;
   locationStatus: string;
   nextStepIndex: number;
@@ -72,6 +76,7 @@ type GlassPickerOption = PlaceResult & {
 
 const FAVORITES_STORAGE_KEY = "apexline-favorites";
 const UNIT_SYSTEM_STORAGE_KEY = "apexline-unit-system";
+const HEADING_SOURCE_STORAGE_KEY = "apexline-heading-source";
 const SIDE_ROADS_STORAGE_KEY = "apexline-side-roads";
 const SPEED_DISPLAY_STORAGE_KEY = "apexline-speed-display";
 const CONTROL_HINTS_STORAGE_KEY = "apexline-control-hints";
@@ -81,6 +86,7 @@ const state: AppState = {
   mode: "motorcycle",
   unitSystem: loadUnitSystem(),
   guidanceView: "arrows",
+  headingSource: loadHeadingSource(),
   showSideRoads: loadSideRoadsEnabled(),
   showSpeed: loadSpeedDisplayEnabled(),
   showControlHints: loadControlHintsEnabled(),
@@ -116,6 +122,9 @@ const state: AppState = {
   selectedPlace: null,
   route: null,
   position: null,
+  phoneHeadingDegrees: null,
+  phoneHeadingStatus: "Travel heading",
+  lastPhoneHeadingAt: 0,
   locationSource: null,
   locationStatus: "No location yet",
   nextStepIndex: 0,
@@ -158,6 +167,7 @@ let lastDevDriveAt = 0;
 let titleTapCount = 0;
 let titleTapResetTimer: number | null = null;
 let devGlassesKeyboardBound = false;
+let phoneHeadingListenerBound = false;
 
 void boot();
 
@@ -166,6 +176,9 @@ async function boot(): Promise<void> {
   installDevGlassHarness();
   render();
   state.bridgeConnected = await glassDisplay.connect(handleGlassInput);
+  if (state.headingSource === "phone") {
+    void startPhoneHeadingTracking(false);
+  }
   await updateGlass();
   if (shouldAutoRunDevRoute()) {
     await buildDevTestRoute();
@@ -255,6 +268,19 @@ function applyLaunchOptions(): void {
   if (units === "metric" || units === "imperial") {
     state.unitSystem = units;
     saveUnitSystem();
+  }
+
+  const heading = params.get("heading");
+  if (heading === "travel" || heading === "phone") {
+    state.headingSource = heading;
+    saveHeadingSource();
+  }
+
+  const phoneHeading = Number(params.get("phoneHeading"));
+  if (Number.isFinite(phoneHeading)) {
+    state.phoneHeadingDegrees = normalizeDegrees(phoneHeading);
+    state.lastPhoneHeadingAt = Date.now();
+    state.phoneHeadingStatus = "Dev phone compass";
   }
 
   if (params.has("sideRoads")) {
@@ -452,6 +478,17 @@ function renderSettingsMenu(): string {
             <button class="unit-mode ${state.unitSystem === "imperial" ? "active" : ""}" data-unit-system="imperial" type="button">Imperial</button>
             <button class="unit-mode ${state.unitSystem === "metric" ? "active" : ""}" data-unit-system="metric" type="button">Metric</button>
           </div>
+        </div>
+        <div class="setting-group">
+          <span>HUD heading</span>
+          <div class="segmented-row" role="group" aria-label="HUD heading source">
+            <button class="heading-mode ${state.headingSource === "travel" ? "active" : ""}" data-heading-source="travel" type="button">Travel</button>
+            <button class="heading-mode ${state.headingSource === "phone" ? "active" : ""}" data-heading-source="phone" type="button">Phone compass</button>
+          </div>
+          ${state.headingSource === "phone" ? `
+            <button class="settings-action" data-enable-phone-heading type="button">Enable phone compass</button>
+            <span class="setting-note">${escapeHtml(state.phoneHeadingStatus)}</span>
+          ` : `<span class="setting-note">Uses GPS course or simulated route heading.</span>`}
         </div>
         <label class="setting-toggle">
           <input type="checkbox" data-side-roads ${state.showSideRoads ? "checked" : ""} />
@@ -711,7 +748,7 @@ function renderGuidancePanel(): string {
   }
 
   const snapshot = withDisplayPreferences(
-    makeGuidanceSnapshot(state.route, state.position, state.mode, state.nextStepIndex, state.unitSystem)
+    makeGuidanceSnapshot(state.route, positionForGuidance(state.position), state.mode, state.nextStepIndex, state.unitSystem)
   );
   if (state.guidanceView === "map") {
     return `
@@ -723,7 +760,7 @@ function renderGuidancePanel(): string {
       <div>
         <span>Map view</span>
         <strong>${escapeHtml(snapshot.primary)}</strong>
-        <p>${escapeHtml(state.showSpeed ? `${snapshot.speedLabel ?? formatCurrentSpeed()} | ${snapshot.tertiary}` : snapshot.tertiary)}</p>
+        <p>${escapeHtml(`${state.showSpeed ? `${snapshot.speedLabel ?? formatCurrentSpeed()} | ` : ""}${snapshot.tertiary} | ${headingStatusSummary()}`)}</p>
       </div>
     `;
   }
@@ -733,7 +770,7 @@ function renderGuidancePanel(): string {
     <div>
       <span>Arrow view</span>
       <strong>${escapeHtml(snapshot.primary)}</strong>
-      <p>${escapeHtml(state.showSpeed ? `${snapshot.speedLabel ?? formatCurrentSpeed()} | ${snapshot.secondary}` : snapshot.secondary)}</p>
+      <p>${escapeHtml(`${state.showSpeed ? `${snapshot.speedLabel ?? formatCurrentSpeed()} | ` : ""}${snapshot.secondary} | ${headingStatusSummary()}`)}</p>
     </div>
   `;
 }
@@ -779,6 +816,24 @@ function bindEvents(): void {
       void updateGlass();
       render();
     });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-heading-source]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.headingSource = button.dataset.headingSource as AppState["headingSource"];
+      saveHeadingSource();
+      if (state.headingSource === "phone") {
+        void startPhoneHeadingTracking(false);
+      } else {
+        state.phoneHeadingStatus = "Travel heading";
+      }
+      void updateGlass();
+      render();
+    });
+  });
+
+  document.querySelector<HTMLButtonElement>("[data-enable-phone-heading]")?.addEventListener("click", () => {
+    void startPhoneHeadingTracking(true);
   });
 
   document.querySelector<HTMLInputElement>("[data-side-roads]")?.addEventListener("change", (event) => {
@@ -1182,6 +1237,14 @@ function saveUnitSystem(): void {
   window.localStorage.setItem(UNIT_SYSTEM_STORAGE_KEY, state.unitSystem);
 }
 
+function loadHeadingSource(): AppState["headingSource"] {
+  return window.localStorage.getItem(HEADING_SOURCE_STORAGE_KEY) === "phone" ? "phone" : "travel";
+}
+
+function saveHeadingSource(): void {
+  window.localStorage.setItem(HEADING_SOURCE_STORAGE_KEY, state.headingSource);
+}
+
 function loadSideRoadsEnabled(): boolean {
   return window.localStorage.getItem(SIDE_ROADS_STORAGE_KEY) === "1";
 }
@@ -1216,6 +1279,136 @@ function saveNightModeEnabled(): void {
 
 function formatCurrentSpeed(): string {
   return formatSpeed(state.position?.speedMetersPerSecond ?? null, state.unitSystem);
+}
+
+function currentPhoneHeadingDegrees(): number | null {
+  if (state.phoneHeadingDegrees == null) {
+    return null;
+  }
+
+  if (Date.now() - state.lastPhoneHeadingAt > 5000) {
+    return null;
+  }
+
+  return state.phoneHeadingDegrees;
+}
+
+function positionForGuidance(position: PositionSample): PositionSample {
+  if (state.headingSource !== "phone") {
+    return position;
+  }
+
+  const phoneHeading = currentPhoneHeadingDegrees();
+  if (phoneHeading == null) {
+    return position;
+  }
+
+  return {
+    ...position,
+    headingDegrees: phoneHeading
+  };
+}
+
+function headingStatusSummary(): string {
+  if (state.headingSource !== "phone") {
+    return "travel heading";
+  }
+
+  const heading = currentPhoneHeadingDegrees();
+  return heading == null ? state.phoneHeadingStatus : `${state.phoneHeadingStatus} ${Math.round(heading)} deg`;
+}
+
+async function startPhoneHeadingTracking(requestPermission: boolean): Promise<void> {
+  state.headingSource = "phone";
+  saveHeadingSource();
+
+  const orientationConstructor = window.DeviceOrientationEvent as
+    | (typeof DeviceOrientationEvent & { requestPermission?: () => Promise<PermissionState> })
+    | undefined;
+
+  if (requestPermission && orientationConstructor?.requestPermission) {
+    try {
+      const permission = await orientationConstructor.requestPermission();
+      if (permission !== "granted") {
+        state.phoneHeadingStatus = "Phone compass denied";
+        void updateGlass();
+        render();
+        return;
+      }
+    } catch {
+      state.phoneHeadingStatus = "Phone compass permission failed";
+      void updateGlass();
+      render();
+      return;
+    }
+  } else if (!requestPermission && orientationConstructor?.requestPermission) {
+    state.phoneHeadingStatus = "Tap Enable phone compass";
+    render();
+    return;
+  }
+
+  if (!("DeviceOrientationEvent" in window)) {
+    state.phoneHeadingStatus = "Phone compass unavailable";
+    void updateGlass();
+    render();
+    return;
+  }
+
+  if (!phoneHeadingListenerBound) {
+    window.addEventListener("deviceorientation", handleDeviceOrientation, true);
+    phoneHeadingListenerBound = true;
+  }
+
+  state.phoneHeadingStatus = "Phone compass listening";
+  void updateGlass();
+  render();
+}
+
+function handleDeviceOrientation(event: DeviceOrientationEvent): void {
+  const heading = headingFromDeviceOrientation(event);
+  if (heading == null) {
+    state.phoneHeadingStatus = "Phone compass unavailable";
+    updateStatsCard();
+    return;
+  }
+
+  state.phoneHeadingDegrees = smoothHeadingDegrees(state.phoneHeadingDegrees, heading, 0.24);
+  state.lastPhoneHeadingAt = Date.now();
+  state.phoneHeadingStatus = "Phone compass";
+
+  if (state.navigating && state.headingSource === "phone") {
+    void updateGlass();
+  }
+  updateStatsCard();
+}
+
+function headingFromDeviceOrientation(event: DeviceOrientationEvent): number | null {
+  const compassEvent = event as DeviceOrientationEvent & {
+    webkitCompassHeading?: number;
+  };
+
+  if (typeof compassEvent.webkitCompassHeading === "number" && Number.isFinite(compassEvent.webkitCompassHeading)) {
+    return normalizeDegrees(compassEvent.webkitCompassHeading);
+  }
+
+  if (typeof event.alpha === "number" && Number.isFinite(event.alpha)) {
+    return normalizeDegrees(360 - event.alpha);
+  }
+
+  return null;
+}
+
+function smoothHeadingDegrees(previous: number | null, next: number, ratio: number): number {
+  if (previous == null) {
+    return next;
+  }
+
+  const delta = ((((next - previous) % 360) + 540) % 360) - 180;
+  return normalizeDegrees(previous + delta * ratio);
+}
+
+function normalizeDegrees(degrees: number): number {
+  return ((degrees % 360) + 360) % 360;
 }
 
 function scheduleSearch(): void {
@@ -1798,7 +1991,7 @@ function currentSnapshot(): GuidanceSnapshot {
   }
 
   const snapshot = withDisplayPreferences(
-    makeGuidanceSnapshot(state.route, state.position, state.mode, state.nextStepIndex, state.unitSystem)
+    makeGuidanceSnapshot(state.route, positionForGuidance(state.position), state.mode, state.nextStepIndex, state.unitSystem)
   );
   state.nextStepIndex = snapshot.nextStepIndex;
   return state.guidanceView === "map" ? mapGlassesSnapshot(snapshot) : snapshot;
@@ -2193,6 +2386,19 @@ function glassesSettings(): Array<{ label: string; value: () => string; toggle: 
       toggle: () => {
         state.unitSystem = state.unitSystem === "metric" ? "imperial" : "metric";
         saveUnitSystem();
+      }
+    },
+    {
+      label: "Heading",
+      value: () => state.headingSource === "phone" ? "Phone compass" : "Travel course",
+      toggle: () => {
+        state.headingSource = state.headingSource === "phone" ? "travel" : "phone";
+        saveHeadingSource();
+        if (state.headingSource === "phone") {
+          void startPhoneHeadingTracking(false);
+        } else {
+          state.phoneHeadingStatus = "Travel heading";
+        }
       }
     },
     {

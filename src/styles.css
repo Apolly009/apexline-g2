@@ -625,6 +625,21 @@ h1 {
   gap: 8px;
 }
 
+.settings-action {
+  min-height: 38px;
+  border: 1px solid rgba(124, 255, 158, 0.26);
+  border-radius: 8px;
+  background: rgba(124, 255, 158, 0.1);
+  color: var(--text);
+  font-weight: 900;
+}
+
+.setting-note {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 .setting-toggle {
   display: flex;
   align-items: center;
