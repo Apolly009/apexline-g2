@@ -1,4 +1,4 @@
-import { makeGuidanceSnapshot, makeIdleSnapshot, type GuidanceSnapshot, type PositionSample } from "./guidance";
+import { makeGuidanceSnapshot, makeIdleSnapshot, type GuidanceHazardAlert, type GuidanceSnapshot, type PositionSample } from "./guidance";
 import { GlassDisplay } from "./glasses";
 import L, { type LatLngExpression, type Map as LeafletMap } from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -26,6 +26,10 @@ type AppState = {
   showSpeed: boolean;
   showControlHints: boolean;
   nightMode: boolean;
+  arrowLayout: "left" | "bottom";
+  blitzerEnabled: boolean;
+  blitzerAlert: BlitzerAlert | null;
+  blitzerReportStatus: string;
   activeSearchField: "origin" | "destination" | null;
   bridgeConnected: boolean;
   locating: boolean;
@@ -51,7 +55,8 @@ type AppState = {
   glassesStartFavoriteIndex: number;
   glassesDestinationFavoriteIndex: number;
   glassesSettingsIndex: number;
-  glassesScreen: "home" | "favoriteOrigin" | "favoriteDestination" | "routeReady" | "settings";
+  glassesHomeSelectionIndex: number;
+  glassesScreen: "home" | "homeMenu" | "favoriteOrigin" | "favoriteDestination" | "routeReady" | "settings" | "blitzer";
   glassesSelectedOrigin: PlaceResult | null;
   devToolsEnabled: boolean;
   selectedPlace: PlaceResult | null;
@@ -69,6 +74,24 @@ type GlassPickerOption = PlaceResult & {
   badge?: string;
   disabled?: boolean;
 };
+type BlitzerAlert = {
+  id: string;
+  label: string;
+  distanceMeters: number;
+  speedLimitKph: number | null;
+  reportedAt: number;
+  expiresAt: number;
+  source: "launch" | "dev" | "notification";
+  reportStatus: "unreported" | "confirmed" | "gone";
+};
+type BlitzerAlertInput = {
+  text?: string;
+  label?: string;
+  distanceMeters?: number;
+  speedLimitKph?: number | null;
+  ttlSeconds?: number;
+  source?: BlitzerAlert["source"];
+};
 
 const FAVORITES_STORAGE_KEY = "apexline-favorites";
 const UNIT_SYSTEM_STORAGE_KEY = "apexline-unit-system";
@@ -76,6 +99,9 @@ const SIDE_ROADS_STORAGE_KEY = "apexline-side-roads";
 const SPEED_DISPLAY_STORAGE_KEY = "apexline-speed-display";
 const CONTROL_HINTS_STORAGE_KEY = "apexline-control-hints";
 const NIGHT_MODE_STORAGE_KEY = "apexline-night-mode";
+const ARROW_LAYOUT_STORAGE_KEY = "apexline-arrow-layout";
+const BLITZER_ENABLED_STORAGE_KEY = "apexline-blitzer-enabled";
+const BLITZER_ALERT_TTL_MS = 8 * 60 * 1000;
 
 const state: AppState = {
   mode: "motorcycle",
@@ -85,6 +111,10 @@ const state: AppState = {
   showSpeed: loadSpeedDisplayEnabled(),
   showControlHints: loadControlHintsEnabled(),
   nightMode: loadNightModeEnabled(),
+  arrowLayout: loadArrowLayout(),
+  blitzerEnabled: loadBlitzerEnabled(),
+  blitzerAlert: null,
+  blitzerReportStatus: "No Blitzer alert",
   activeSearchField: null,
   bridgeConnected: false,
   locating: false,
@@ -110,6 +140,7 @@ const state: AppState = {
   glassesStartFavoriteIndex: 0,
   glassesDestinationFavoriteIndex: 0,
   glassesSettingsIndex: 0,
+  glassesHomeSelectionIndex: 0,
   glassesScreen: "home",
   glassesSelectedOrigin: null,
   devToolsEnabled: false,
@@ -179,6 +210,7 @@ async function boot(): Promise<void> {
 function installDevGlassHarness(): void {
   const devWindow = window as Window & {
     __apexlineDevGlassInput?: (action: GlassAction) => void;
+    __apexlineBlitzerAlert?: (alert: BlitzerAlertInput | string) => void;
     __apexlineDebugState?: () => Record<string, unknown>;
   };
 
@@ -189,6 +221,9 @@ function installDevGlassHarness(): void {
 
     runDevGlassInput(action);
   };
+  devWindow.__apexlineBlitzerAlert = (alert) => {
+    ingestBlitzerAlert(alert, "dev");
+  };
   devWindow.__apexlineDebugState = devDebugSnapshot;
   document.addEventListener("apexline-dev-glass-input", (event) => {
     const action = (event as CustomEvent<unknown>).detail;
@@ -197,6 +232,9 @@ function installDevGlassHarness(): void {
     }
 
     runDevGlassInput(action);
+  });
+  document.addEventListener("apexline-blitzer-alert", (event) => {
+    ingestBlitzerAlert((event as CustomEvent<unknown>).detail as BlitzerAlertInput | string, "dev");
   });
 }
 
@@ -210,7 +248,12 @@ function devDebugSnapshot(): Record<string, unknown> {
     showSideRoads: state.showSideRoads,
     showSpeed: state.showSpeed,
     showControlHints: state.showControlHints,
+    arrowLayout: state.arrowLayout,
+    blitzerEnabled: state.blitzerEnabled,
+    blitzerAlert: currentBlitzerAlert(),
+    blitzerReportStatus: state.blitzerReportStatus,
     settingsIndex: state.glassesSettingsIndex,
+    homeSelectionIndex: state.glassesHomeSelectionIndex,
     startFavoriteIndex: state.glassesStartFavoriteIndex,
     destinationFavoriteIndex: state.glassesDestinationFavoriteIndex,
     selectedOrigin: state.glassesSelectedOrigin?.label ?? null,
@@ -275,6 +318,29 @@ function applyLaunchOptions(): void {
   if (params.has("night")) {
     state.nightMode = params.get("night") !== "0";
     saveNightModeEnabled();
+  }
+
+  const arrowLayout = params.get("arrowLayout");
+  if (arrowLayout === "left" || arrowLayout === "bottom") {
+    state.arrowLayout = arrowLayout;
+    saveArrowLayout();
+  }
+
+  if (params.has("blitzer")) {
+    state.blitzerEnabled = params.get("blitzer") !== "0";
+    saveBlitzerEnabled();
+  }
+
+  const blitzerText = params.get("blitzerText");
+  const blitzerDistance = Number(params.get("blitzerDistance"));
+  const blitzerSpeed = Number(params.get("blitzerSpeed"));
+  if (blitzerText || Number.isFinite(blitzerDistance) || Number.isFinite(blitzerSpeed)) {
+    ingestBlitzerAlert({
+      text: blitzerText ?? undefined,
+      distanceMeters: Number.isFinite(blitzerDistance) ? blitzerDistance : undefined,
+      speedLimitKph: Number.isFinite(blitzerSpeed) ? blitzerSpeed : undefined,
+      source: "launch"
+    }, "launch");
   }
 
   if (params.has("devTools")) {
@@ -464,6 +530,17 @@ function renderSettingsMenu(): string {
         <label class="setting-toggle">
           <input type="checkbox" data-night-mode ${state.nightMode ? "checked" : ""} />
           <span>Night HUD</span>
+        </label>
+        <div class="setting-group">
+          <span>Arrow position</span>
+          <div class="segmented-row" role="group" aria-label="Arrow position">
+            <button class="view-mode ${state.arrowLayout === "left" ? "active" : ""}" data-arrow-layout="left" type="button">Left</button>
+            <button class="view-mode ${state.arrowLayout === "bottom" ? "active" : ""}" data-arrow-layout="bottom" type="button">Bottom</button>
+          </div>
+        </div>
+        <label class="setting-toggle">
+          <input type="checkbox" data-blitzer-enabled ${state.blitzerEnabled ? "checked" : ""} />
+          <span>Blitzer.de Pro alerts</span>
         </label>
         <label class="setting-toggle">
           <input type="checkbox" data-control-hints ${state.showControlHints ? "checked" : ""} />
@@ -699,6 +776,7 @@ function renderStats(): string {
 }
 
 function renderGuidancePanel(): string {
+  const blitzerPanel = renderBlitzerPanel();
   if (!state.route || !state.position || !state.navigating) {
     return `
       <div class="guidance-visual idle">--</div>
@@ -706,13 +784,14 @@ function renderGuidancePanel(): string {
         <span>Glasses guidance</span>
         <strong>${state.guidanceView === "arrows" ? "Arrow view" : "Map view"}</strong>
         <p>Start navigation to preview the G2 prompt style.</p>
+        ${blitzerPanel}
       </div>
     `;
   }
 
-  const snapshot = withDisplayPreferences(
+  const snapshot = withBlitzerAlert(withDisplayPreferences(
     makeGuidanceSnapshot(state.route, state.position, state.mode, state.nextStepIndex, state.unitSystem)
-  );
+  ));
   if (state.guidanceView === "map") {
     return `
       <div class="mini-map-visual" aria-hidden="true">
@@ -724,6 +803,7 @@ function renderGuidancePanel(): string {
         <span>Map view</span>
         <strong>${escapeHtml(snapshot.primary)}</strong>
         <p>${escapeHtml(state.showSpeed ? `${snapshot.speedLabel ?? formatCurrentSpeed()} | ${snapshot.tertiary}` : snapshot.tertiary)}</p>
+        ${blitzerPanel}
       </div>
     `;
   }
@@ -734,6 +814,26 @@ function renderGuidancePanel(): string {
       <span>Arrow view</span>
       <strong>${escapeHtml(snapshot.primary)}</strong>
       <p>${escapeHtml(state.showSpeed ? `${snapshot.speedLabel ?? formatCurrentSpeed()} | ${snapshot.secondary}` : snapshot.secondary)}</p>
+      ${blitzerPanel}
+    </div>
+  `;
+}
+
+function renderBlitzerPanel(): string {
+  if (!state.blitzerEnabled) {
+    return "";
+  }
+
+  const alert = currentBlitzerAlert();
+  if (!alert) {
+    return `<p class="blitzer-status">Blitzer.de Pro alerts armed. Waiting for bridge input.</p>`;
+  }
+
+  return `
+    <div class="blitzer-alert">
+      <span>Blitzer.de Pro</span>
+      <strong>${escapeHtml(formatBlitzerDistance(alert))} ahead · ${escapeHtml(formatBlitzerSpeedLimit(alert))}</strong>
+      <p>${escapeHtml(state.blitzerReportStatus || "Unreported")}</p>
     </div>
   `;
 }
@@ -781,6 +881,18 @@ function bindEvents(): void {
     });
   });
 
+  document.querySelectorAll<HTMLButtonElement>("[data-arrow-layout]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const layout = button.dataset.arrowLayout;
+      if (layout === "left" || layout === "bottom") {
+        state.arrowLayout = layout;
+        saveArrowLayout();
+        void updateGlass();
+        render();
+      }
+    });
+  });
+
   document.querySelector<HTMLInputElement>("[data-side-roads]")?.addEventListener("change", (event) => {
     state.showSideRoads = (event.target as HTMLInputElement).checked;
     saveSideRoadsEnabled();
@@ -798,6 +910,13 @@ function bindEvents(): void {
   document.querySelector<HTMLInputElement>("[data-night-mode]")?.addEventListener("change", (event) => {
     state.nightMode = (event.target as HTMLInputElement).checked;
     saveNightModeEnabled();
+    void updateGlass();
+    render();
+  });
+
+  document.querySelector<HTMLInputElement>("[data-blitzer-enabled]")?.addEventListener("change", (event) => {
+    state.blitzerEnabled = (event.target as HTMLInputElement).checked;
+    saveBlitzerEnabled();
     void updateGlass();
     render();
   });
@@ -1214,8 +1333,174 @@ function saveNightModeEnabled(): void {
   window.localStorage.setItem(NIGHT_MODE_STORAGE_KEY, state.nightMode ? "1" : "0");
 }
 
+function loadArrowLayout(): AppState["arrowLayout"] {
+  return window.localStorage.getItem(ARROW_LAYOUT_STORAGE_KEY) === "bottom" ? "bottom" : "left";
+}
+
+function saveArrowLayout(): void {
+  window.localStorage.setItem(ARROW_LAYOUT_STORAGE_KEY, state.arrowLayout);
+}
+
+function loadBlitzerEnabled(): boolean {
+  return window.localStorage.getItem(BLITZER_ENABLED_STORAGE_KEY) === "1";
+}
+
+function saveBlitzerEnabled(): void {
+  window.localStorage.setItem(BLITZER_ENABLED_STORAGE_KEY, state.blitzerEnabled ? "1" : "0");
+}
+
 function formatCurrentSpeed(): string {
   return formatSpeed(state.position?.speedMetersPerSecond ?? null, state.unitSystem);
+}
+
+function ingestBlitzerAlert(input: BlitzerAlertInput | string, fallbackSource: BlitzerAlert["source"]): void {
+  const normalized = normalizeBlitzerAlertInput(input, fallbackSource);
+  if (!normalized) {
+    state.blitzerReportStatus = "Blitzer alert ignored";
+    syncDevDebugState();
+    return;
+  }
+
+  state.blitzerEnabled = true;
+  saveBlitzerEnabled();
+  state.blitzerAlert = normalized;
+  state.blitzerReportStatus = "Blitzer alert received";
+  void updateGlass();
+  render();
+  syncDevDebugState();
+}
+
+function normalizeBlitzerAlertInput(input: BlitzerAlertInput | string, fallbackSource: BlitzerAlert["source"]): BlitzerAlert | null {
+  const sourceInput = typeof input === "string" ? { text: input } : input;
+  const parsed = parseBlitzerAlertText(sourceInput.text ?? "");
+  const distanceMeters = finitePositive(sourceInput.distanceMeters) ?? parsed.distanceMeters;
+  if (distanceMeters == null) {
+    return null;
+  }
+
+  const speedLimitKph = sourceInput.speedLimitKph === null
+    ? null
+    : finitePositive(sourceInput.speedLimitKph) ?? parsed.speedLimitKph;
+  const now = Date.now();
+  const ttlMs = Math.max(30000, Math.min(30 * 60 * 1000, (sourceInput.ttlSeconds ?? BLITZER_ALERT_TTL_MS / 1000) * 1000));
+  return {
+    id: `blitzer-${now}`,
+    label: sourceInput.label ?? parsed.label ?? "Speed camera",
+    distanceMeters,
+    speedLimitKph: speedLimitKph ?? null,
+    reportedAt: now,
+    expiresAt: now + ttlMs,
+    source: sourceInput.source ?? fallbackSource,
+    reportStatus: "unreported"
+  };
+}
+
+function parseBlitzerAlertText(text: string): Partial<Pick<BlitzerAlert, "distanceMeters" | "speedLimitKph" | "label">> {
+  const distanceMatch = text.match(/(\d+(?:[.,]\d+)?)\s*(km|m|mi|mile|miles|ft|feet)\b/i);
+  const speedMatch = text.match(/(\d{2,3})\s*(km\/h|kph|mph)\b/i);
+  const distanceValue = distanceMatch ? Number(distanceMatch[1].replace(",", ".")) : NaN;
+  const distanceUnit = distanceMatch?.[2]?.toLowerCase();
+  const speedValue = speedMatch ? Number(speedMatch[1]) : NaN;
+  const speedUnit = speedMatch?.[2]?.toLowerCase();
+
+  return {
+    distanceMeters: Number.isFinite(distanceValue) && distanceUnit ? distanceToMeters(distanceValue, distanceUnit) : undefined,
+    speedLimitKph: Number.isFinite(speedValue) && speedUnit ? speedToKph(speedValue, speedUnit) : undefined,
+    label: /mobile/i.test(text) ? "Mobile speed camera" : /red.?light/i.test(text) ? "Red light camera" : undefined
+  };
+}
+
+function currentBlitzerAlert(): BlitzerAlert | null {
+  if (!state.blitzerAlert || Date.now() > state.blitzerAlert.expiresAt) {
+    if (state.blitzerAlert) {
+      state.blitzerAlert = null;
+      state.blitzerReportStatus = "Blitzer alert expired";
+    }
+    return null;
+  }
+
+  return state.blitzerAlert;
+}
+
+function blitzerDisplayAlert(alert: BlitzerAlert): GuidanceHazardAlert {
+  return {
+    label: alert.label,
+    distanceLabel: formatBlitzerDistance(alert),
+    speedLimitLabel: formatBlitzerSpeedLimit(alert),
+    speedLimitValue: formatBlitzerSpeedLimitValue(alert),
+    unitSystem: state.unitSystem,
+    currentSpeedLabel: formatCurrentSpeed(),
+    statusLabel: state.blitzerReportStatus || reportStatusLabel(alert.reportStatus)
+  };
+}
+
+function reportBlitzerAlert(status: BlitzerAlert["reportStatus"]): void {
+  const alert = currentBlitzerAlert();
+  if (!alert) {
+    state.blitzerReportStatus = "No Blitzer alert to report";
+    return;
+  }
+
+  alert.reportStatus = status;
+  state.blitzerReportStatus = reportStatusLabel(status);
+}
+
+function reportStatusLabel(status: BlitzerAlert["reportStatus"]): string {
+  if (status === "confirmed") {
+    return "Marked still there";
+  }
+  if (status === "gone") {
+    return "Marked no longer there";
+  }
+  return "Not reported";
+}
+
+function formatBlitzerDistance(alert: BlitzerAlert): string {
+  return formatDistance(alert.distanceMeters, state.unitSystem);
+}
+
+function formatBlitzerSpeedLimit(alert: BlitzerAlert): string {
+  if (alert.speedLimitKph == null) {
+    return "Speed limit unknown";
+  }
+
+  if (state.unitSystem === "metric") {
+    return `${Math.round(alert.speedLimitKph)} km/h`;
+  }
+
+  return `${Math.round(alert.speedLimitKph / 1.609344)} mph`;
+}
+
+function formatBlitzerSpeedLimitValue(alert: BlitzerAlert): string | undefined {
+  if (alert.speedLimitKph == null) {
+    return undefined;
+  }
+
+  return state.unitSystem === "metric"
+    ? String(Math.round(alert.speedLimitKph))
+    : String(Math.round(alert.speedLimitKph / 1.609344));
+}
+
+function distanceToMeters(value: number, unit: string): number {
+  if (unit === "km") {
+    return value * 1000;
+  }
+  if (unit === "mi" || unit === "mile" || unit === "miles") {
+    return value * 1609.344;
+  }
+  if (unit === "ft" || unit === "feet") {
+    return value * 0.3048;
+  }
+  return value;
+}
+
+function speedToKph(value: number, unit: string): number {
+  return unit === "mph" ? value * 1.609344 : value;
+}
+
+function finitePositive(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
 }
 
 function scheduleSearch(): void {
@@ -1778,6 +2063,14 @@ function currentSnapshot(): GuidanceSnapshot {
   }
 
   if (!state.navigating) {
+    if (state.glassesScreen === "homeMenu") {
+      return homeMenuGlassesSnapshot();
+    }
+
+    if (state.glassesScreen === "blitzer") {
+      return blitzerGlassesSnapshot();
+    }
+
     if (state.glassesScreen === "favoriteOrigin") {
       return favoriteGlassesSnapshot("origin");
     }
@@ -1797,9 +2090,9 @@ function currentSnapshot(): GuidanceSnapshot {
     return homeGlassesSnapshot();
   }
 
-  const snapshot = withDisplayPreferences(
+  const snapshot = withBlitzerAlert(withDisplayPreferences(
     makeGuidanceSnapshot(state.route, state.position, state.mode, state.nextStepIndex, state.unitSystem)
-  );
+  ));
   state.nextStepIndex = snapshot.nextStepIndex;
   return state.guidanceView === "map" ? mapGlassesSnapshot(snapshot) : snapshot;
 }
@@ -1813,7 +2106,20 @@ function withDisplayPreferences(snapshot: GuidanceSnapshot): GuidanceSnapshot {
     showSideRoads: state.showSideRoads,
     showSpeed: state.showSpeed,
     showControlHints: state.showControlHints,
-    nightMode: state.nightMode
+    nightMode: state.nightMode,
+    arrowLayout: state.arrowLayout
+  };
+}
+
+function withBlitzerAlert(snapshot: GuidanceSnapshot): GuidanceSnapshot {
+  const alert = currentBlitzerAlert();
+  if (!state.blitzerEnabled || !alert) {
+    return snapshot;
+  }
+
+  return {
+    ...snapshot,
+    hazardAlert: blitzerDisplayAlert(alert)
   };
 }
 
@@ -1839,22 +2145,63 @@ function routeReadyGlassesSnapshot(): GuidanceSnapshot {
 function homeGlassesSnapshot(): GuidanceSnapshot {
   const hasFavorites = glassesPickerOptions("destination").length > 0;
   const hasPhoneRoute = Boolean(state.position && state.selectedPlace);
+  const blitzerAlert = currentBlitzerAlert();
   const gpsStatus = hasPhoneRoute ? "Route ready" : state.position ? "GPS ready" : "No GPS connection";
   const homeHint = state.showControlHints
-    ? hasFavorites || state.position ? "Up settings | Down favorites" : "Up settings"
+    ? state.blitzerEnabled ? "Down Blitzer | Up settings" : hasFavorites || state.position ? "Up settings | Down favorites" : "Up settings"
     : "";
   return {
     active: false,
     title: "Apexline",
-    primary: gpsStatus,
-    secondary: hasPhoneRoute ? "Phone route ready" : hasFavorites ? "Favorites ready" : "No favorites",
+    primary: blitzerAlert ? "Camera ahead" : gpsStatus,
+    secondary: blitzerAlert ? `${formatBlitzerDistance(blitzerAlert)} ${formatBlitzerSpeedLimit(blitzerAlert)}` : hasPhoneRoute ? "Phone route ready" : hasFavorites ? "Favorites ready" : "No favorites",
     tertiary: state.position ? "GPS ready" : "GPS unavailable",
     hint: homeHint,
     arrow: "--",
     nextStepIndex: 0,
     distanceToStepMeters: 0,
     offRoute: false,
-    showControlHints: state.showControlHints
+    showControlHints: state.showControlHints,
+    hazardAlert: blitzerAlert ? blitzerDisplayAlert(blitzerAlert) : undefined
+  };
+}
+
+function homeMenuGlassesSnapshot(): GuidanceSnapshot {
+  return {
+    active: false,
+    title: "Choose Mode",
+    primary: "Choose mode",
+    secondary: "Select from glasses",
+    tertiary: "",
+    hint: state.showControlHints ? "Swipe move | Click select | Double back" : "",
+    arrow: "--",
+    nextStepIndex: 0,
+    distanceToStepMeters: 0,
+    offRoute: false,
+    showControlHints: state.showControlHints,
+    pickerItems: [
+      { label: "Navigation", selected: state.glassesHomeSelectionIndex === 0 },
+      { label: "Blitzer", badge: state.blitzerEnabled ? "ON" : "OFF", selected: state.glassesHomeSelectionIndex === 1 }
+    ]
+  };
+}
+
+function blitzerGlassesSnapshot(): GuidanceSnapshot {
+  const alert = currentBlitzerAlert();
+  return {
+    active: false,
+    title: "Blitzer",
+    primary: alert ? `${formatBlitzerDistance(alert)} ahead` : "No camera ahead",
+    secondary: alert ? formatBlitzerSpeedLimit(alert) : "Waiting for Blitzer.de Pro",
+    tertiary: state.blitzerReportStatus,
+    hint: state.showControlHints ? "Press confirm | Down gone | Double back" : "",
+    arrow: "--",
+    nextStepIndex: 0,
+    distanceToStepMeters: alert?.distanceMeters ?? 0,
+    offRoute: false,
+    speedLabel: formatCurrentSpeed(),
+    showControlHints: state.showControlHints,
+    hazardAlert: alert ? blitzerDisplayAlert(alert) : undefined
   };
 }
 
@@ -1924,7 +2271,7 @@ function mapGlassesSnapshot(snapshot: GuidanceSnapshot): GuidanceSnapshot {
 
 function handleGlassInput(action: GlassAction): void {
   if (action === "long" && !state.navigating) {
-    state.glassesScreen = state.glassesScreen === "settings" ? "home" : "favoriteOrigin";
+    state.glassesScreen = state.glassesScreen === "settings" ? "home" : "homeMenu";
     void updateGlass();
     render();
     return;
@@ -1935,10 +2282,27 @@ function handleGlassInput(action: GlassAction): void {
     return;
   }
 
+  if (state.glassesScreen === "homeMenu") {
+    handleHomeMenuInput(action);
+    return;
+  }
+
+  if (state.glassesScreen === "blitzer") {
+    handleBlitzerInput(action);
+    return;
+  }
+
   if (state.navigating) {
     if (action === "double") {
       state.glassesScreen = "home";
       cancelNavigation("Navigation stopped.");
+      return;
+    }
+
+    if (state.blitzerEnabled && currentBlitzerAlert() && (action === "up" || action === "down")) {
+      reportBlitzerAlert(action === "up" ? "confirmed" : "gone");
+      void updateGlass();
+      render();
       return;
     }
 
@@ -1982,6 +2346,13 @@ function handleGlassInput(action: GlassAction): void {
     return;
   }
 
+  if (action === "down" && state.blitzerEnabled) {
+    state.glassesScreen = "blitzer";
+    void updateGlass();
+    render();
+    return;
+  }
+
   if (action === "press") {
     if (state.position && state.selectedPlace) {
       startGlassesNavigation();
@@ -2005,6 +2376,60 @@ function handleGlassInput(action: GlassAction): void {
 
   void updateGlass();
   render();
+}
+
+function handleHomeMenuInput(action: GlassAction): void {
+  if (action === "double") {
+    state.glassesScreen = "home";
+    void updateGlass();
+    render();
+    return;
+  }
+
+  if (action === "up" || action === "down") {
+    state.glassesHomeSelectionIndex = (state.glassesHomeSelectionIndex + 1) % 2;
+    void updateGlass();
+    return;
+  }
+
+  if (action !== "press") {
+    return;
+  }
+
+  if (state.glassesHomeSelectionIndex === 1) {
+    state.blitzerEnabled = true;
+    saveBlitzerEnabled();
+    state.glassesScreen = "blitzer";
+    void updateGlass();
+    render();
+    return;
+  }
+
+  state.glassesScreen = "favoriteOrigin";
+  void updateGlass();
+  render();
+}
+
+function handleBlitzerInput(action: GlassAction): void {
+  if (action === "double") {
+    state.glassesScreen = "home";
+    void updateGlass();
+    render();
+    return;
+  }
+
+  if (action === "press" || action === "up") {
+    reportBlitzerAlert("confirmed");
+    void updateGlass();
+    render();
+    return;
+  }
+
+  if (action === "down") {
+    reportBlitzerAlert("gone");
+    void updateGlass();
+    render();
+  }
 }
 
 function handleFavoritePickerInput(target: GlassPickerTarget, action: GlassAction): void {
@@ -2217,6 +2642,22 @@ function glassesSettings(): Array<{ label: string; value: () => string; toggle: 
       toggle: () => {
         state.nightMode = !state.nightMode;
         saveNightModeEnabled();
+      }
+    },
+    {
+      label: "Arrow position",
+      value: () => state.arrowLayout === "bottom" ? "Bottom center" : "Left side",
+      toggle: () => {
+        state.arrowLayout = state.arrowLayout === "bottom" ? "left" : "bottom";
+        saveArrowLayout();
+      }
+    },
+    {
+      label: "Blitzer",
+      value: () => state.blitzerEnabled ? "Alerts armed" : "Alerts hidden",
+      toggle: () => {
+        state.blitzerEnabled = !state.blitzerEnabled;
+        saveBlitzerEnabled();
       }
     }
   ];

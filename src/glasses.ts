@@ -9,7 +9,7 @@ import {
   TextContainerProperty,
   waitForEvenAppBridge
 } from "@evenrealities/even_hub_sdk";
-import type { GuidanceSnapshot } from "./guidance";
+import type { GuidanceHazardAlert, GuidanceSnapshot } from "./guidance";
 
 type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>;
 type InputHandler = (action: "press" | "double" | "up" | "down" | "long") => void;
@@ -223,7 +223,11 @@ function glassRenderKey(snapshot: GuidanceSnapshot, content: string): string {
     snapshot.turnAngleDegrees ?? "",
     snapshot.showSideRoads ? "side-roads" : "clean",
     snapshot.showSpeed ? snapshot.speedLabel ?? "speed" : "no-speed",
+    snapshot.hazardAlert
+      ? `${snapshot.hazardAlert.label}:${snapshot.hazardAlert.distanceLabel}:${snapshot.hazardAlert.speedLimitLabel}:${snapshot.hazardAlert.statusLabel}`
+      : "no-hazard",
     snapshot.nightMode ? "night" : "day",
+    snapshot.arrowLayout ?? "left-arrow",
     snapshot.pickerItems?.map((item) => `${item.selected ? ">" : ""}${item.badge ?? ""}:${item.label}`).join("|") ?? "",
     preview,
     sideRoads
@@ -297,7 +301,11 @@ function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSna
   }
 
   drawHudHint(context, snapshot);
-  drawRouteCue(context, snapshot, 44, 58, 168, 180);
+  if (snapshot.arrowLayout === "bottom") {
+    drawRouteCue(context, snapshot, 212, 186, 152, 86);
+  } else {
+    drawRouteCue(context, snapshot, 44, 58, 168, 180);
+  }
 
   context.fillStyle = HUD_TEXT;
   context.font = "bold 30px system-ui, sans-serif";
@@ -325,6 +333,11 @@ function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSna
   context.font = "bold 13px system-ui, sans-serif";
   context.textAlign = "right";
   context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 24), 534, 252);
+  if (snapshot.arrowLayout === "bottom") {
+    drawNavigationHazardAlert(context, snapshot, 42, 140);
+  } else {
+    drawNavigationHazardAlert(context, snapshot, 52, 46);
+  }
 }
 
 function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
@@ -367,14 +380,24 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
   context.font = "bold 13px system-ui, sans-serif";
   context.textAlign = "right";
   context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 24), 534, 252);
+  drawNavigationHazardAlert(context, snapshot, 42, 128);
 }
 
 function drawNightArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
   context.save();
   context.globalAlpha = 0.58;
-  drawRouteCue(context, snapshot, 70, 76, 128, 144, true);
+  if (snapshot.arrowLayout === "bottom") {
+    drawRouteCue(context, snapshot, 218, 184, 140, 80, true);
+  } else {
+    drawRouteCue(context, snapshot, 70, 76, 128, 144, true);
+  }
   context.restore();
   drawNightDataStack(context, snapshot);
+  if (snapshot.arrowLayout === "bottom") {
+    drawNavigationHazardAlert(context, snapshot, 42, 140, true);
+  } else {
+    drawNavigationHazardAlert(context, snapshot, 50, 38, true);
+  }
 }
 
 function drawNightMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
@@ -384,6 +407,7 @@ function drawNightMapImage(context: CanvasRenderingContext2D, snapshot: Guidance
   context.restore();
   drawNightVehicleMarker(context, GLASS_WIDTH / 2, 246);
   drawNightDataStack(context, snapshot);
+  drawNavigationHazardAlert(context, snapshot, 42, 128, true);
 }
 
 function drawIdleImage(
@@ -401,13 +425,45 @@ function drawIdleImage(
   drawMenuChrome(context, title, chromeHint);
   if (title === "Choose Start" || title === "Choose Finish") {
     drawFavoriteMenu(context, title, primary, secondary, snapshot?.hint ?? "", snapshot?.pickerItems ?? []);
+  } else if (title === "Choose Mode") {
+    drawModeMenu(context, snapshot?.pickerItems ?? [], snapshot?.hint ?? "");
   } else if (title === "Route Ready") {
     drawRouteReadyMenu(context, primary, secondary, tertiary);
+  } else if (title === "Blitzer") {
+    drawBlitzerMenu(context, snapshot);
   } else if (title === "Settings") {
     drawSettingsMenu(context, primary, secondary, snapshot?.hint ?? "");
   } else {
     drawHomeMenu(context, primary, secondary, tertiary, snapshot?.hint ?? "");
   }
+}
+
+function drawModeMenu(
+  context: CanvasRenderingContext2D,
+  items: NonNullable<GuidanceSnapshot["pickerItems"]>,
+  hint: string
+): void {
+  drawFavoriteList(context, items);
+  drawTinyHint(context, hint, MENU_X, 274);
+}
+
+function drawBlitzerMenu(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot | undefined): void {
+  const alert = snapshot?.hazardAlert;
+  if (!alert) {
+    drawBlitzerLogo(context, 446, 74, 0.95);
+    context.fillStyle = HUD_TEXT;
+    context.font = "bold 19px system-ui, sans-serif";
+    context.textAlign = "right";
+    context.fillText("No camera", 536, 150);
+    context.fillStyle = HUD_MUTED;
+    context.font = "bold 12px system-ui, sans-serif";
+    context.fillText("Blitzer armed", 536, 178);
+    drawTinyHint(context, snapshot?.hint ?? "", 32, 270);
+    return;
+  }
+
+  drawStandaloneBlitzerWidget(context, alert);
+  drawTinyHint(context, snapshot?.hint ?? "", 32, 270);
 }
 
 function drawMenuChrome(context: CanvasRenderingContext2D, title: string, hint: string): void {
@@ -732,6 +788,112 @@ function drawHudSpeedValue(
   context.font = "bold 18px system-ui, sans-serif";
   context.textAlign = align;
   context.fillText(snapshot.speedLabel, x, y);
+}
+
+function drawNavigationHazardAlert(
+  context: CanvasRenderingContext2D,
+  snapshot: GuidanceSnapshot,
+  x: number,
+  y: number,
+  muted = false
+): void {
+  const alert = snapshot.hazardAlert;
+  if (!alert) {
+    return;
+  }
+
+  context.save();
+  if (!muted) {
+    context.fillStyle = "rgba(124, 255, 158, 0.08)";
+    context.strokeStyle = "rgba(124, 255, 158, 0.9)";
+    context.lineWidth = 1.5;
+    roundRect(context, x, y, 150, 32, 7);
+    context.fill();
+    context.stroke();
+  }
+
+  drawSpeedLimitSign(context, x + 20, y + 16, 11, alert.speedLimitValue ?? alert.speedLimitLabel, alert.unitSystem);
+
+  context.fillStyle = muted ? "rgba(221, 255, 227, 0.7)" : HUD_TEXT;
+  context.font = "bold 13px system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillText(alert.distanceLabel, x + 40, y + 14);
+
+  context.fillStyle = muted ? "rgba(124, 255, 158, 0.62)" : HUD_PRIMARY;
+  context.font = "bold 12px system-ui, sans-serif";
+  context.fillText(alert.currentSpeedLabel ?? "--", x + 40, y + 27);
+  context.restore();
+}
+
+function drawStandaloneBlitzerWidget(context: CanvasRenderingContext2D, alert: GuidanceHazardAlert): void {
+  const right = 536;
+  drawBlitzerLogo(context, 458, 56, 0.44);
+  drawSpeedLimitSign(context, right - 38, 116, 24, alert.speedLimitValue ?? alert.speedLimitLabel, alert.unitSystem);
+
+  context.fillStyle = HUD_TEXT;
+  context.font = "bold 22px system-ui, sans-serif";
+  context.textAlign = "right";
+  context.fillText(alert.distanceLabel, right, 166);
+
+  context.fillStyle = HUD_PRIMARY;
+  context.font = "bold 17px system-ui, sans-serif";
+  context.fillText(alert.currentSpeedLabel ?? "--", right, 196);
+
+  context.fillStyle = HUD_MUTED;
+  context.font = "bold 11px system-ui, sans-serif";
+  context.fillText(trimImageLine(alert.statusLabel, 22), right, 224);
+}
+
+function drawBlitzerLogo(context: CanvasRenderingContext2D, x: number, y: number, scale: number): void {
+  context.save();
+  context.translate(x, y);
+  context.scale(scale, scale);
+  context.fillStyle = "rgba(124, 255, 158, 0.72)";
+  for (const [top, width] of [[0, 56], [28, 82], [64, 112]] as const) {
+    context.beginPath();
+    context.moveTo(0, top);
+    context.lineTo(width / 2, top + 18);
+    context.lineTo(width, top);
+    context.lineTo(width - 10, top - 22);
+    context.lineTo(width / 2, top - 10);
+    context.lineTo(10, top - 22);
+    context.closePath();
+    context.fill();
+  }
+  context.restore();
+}
+
+function drawSpeedLimitSign(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  label: string,
+  unitSystem: GuidanceHazardAlert["unitSystem"] = "metric"
+): void {
+  const match = label.match(/\d+/);
+  const value = match?.[0] ?? "?";
+  const compact = radius <= 12;
+  context.fillStyle = "#000000";
+  context.strokeStyle = HUD_PRIMARY;
+  context.lineWidth = compact ? 2 : 3;
+  if (unitSystem === "imperial") {
+    const width = radius * (compact ? 1.82 : 1.62);
+    const height = radius * (compact ? 1.95 : 1.86);
+    roundRect(context, x - width / 2, y - height / 2, width, height, compact ? 1.5 : 2);
+    context.fill();
+    context.stroke();
+  } else {
+    context.beginPath();
+    context.arc(x, y, radius, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+  }
+
+  context.fillStyle = HUD_PRIMARY;
+  context.font = `bold ${compact ? 10 : value.length > 2 ? 19 : 22}px system-ui, sans-serif`;
+  context.textAlign = "center";
+  context.fillText(value, x, y + (compact ? 4 : 7));
 }
 
 function drawRouteCue(

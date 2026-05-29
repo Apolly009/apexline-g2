@@ -681,6 +681,26 @@ h1 {
   color: #d7dcdb;
 }
 
+.blitzer-status {
+  margin-top: 8px;
+  color: #f8df8c;
+  font-weight: 700;
+}
+
+.blitzer-alert {
+  display: grid;
+  gap: 3px;
+  margin-top: 10px;
+  border: 1px solid rgba(241, 198, 75, 0.42);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(241, 198, 75, 0.1);
+}
+
+.blitzer-alert span {
+  color: #f8df8c;
+}
+
 .guidance-visual,
 .mini-map-visual {
   display: grid;
