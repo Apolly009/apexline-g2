@@ -102,6 +102,12 @@ when the Blitzer setting is enabled. Reporting "still there" or "gone" is
 tracked locally for now; writing the report back into Blitzer.de Pro still needs
 a real companion/app integration path.
 
+The experimental iOS 26.5 accessory-notification bridge scaffold lives in
+`ios/ApexlineNotificationBridge`. It uses Apple's AccessorySetupKit,
+AccessoryNotifications, and AccessoryTransportExtension APIs; see
+`docs/blitzer-notification-bridge.md` for the current architecture and
+remaining hardware/entitlement limitations.
+
 ## Experimental branch policy
 
 `main-experimental` is the hardware-test branch. It starts from `main`, then

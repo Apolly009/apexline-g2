@@ -1,0 +1,60 @@
+# Apexline Notification Bridge
+
+Experimental iOS companion scaffold for the official Apple accessory-notification path.
+
+This is not a Bluetooth spoofing path. It uses Apple's iOS 26.5 accessory frameworks:
+
+- `AccessorySetupKit` to select/authorize an accessory.
+- `AccessoryNotifications.AccessoryNotificationCenter` to request notification forwarding for that accessory.
+- `AccessoryNotifications.NotificationsForwarding` inside an `AccessoryDataProvider` extension to receive forwarded notifications and normalize Blitzer.de PRO-style speed-camera alerts.
+
+## Current Status
+
+This folder is source-ready scaffolding, not a finished App Store target. It still needs:
+
+- An Xcode app target and an Accessory Data Provider extension target.
+- Apple Developer entitlements/provisioning for accessory data provider usage.
+- Real hardware validation with Even G2 or a relay accessory.
+- A transport decision for how the native bridge injects the alert into the EvenHub WebView. Apexline now accepts the normalized bridge message through `window.postMessage(...)` or the `apexline-native-bridge` custom event, but a separate iOS app cannot directly access the Even Realities app WebView sandbox.
+
+## Alert Contract
+
+Send this JSON into Apexline when a Blitzer notification is parsed:
+
+```json
+{
+  "type": "apexline.blitzer.alert",
+  "alert": {
+    "label": "Speed camera",
+    "distanceMeters": 600,
+    "speedLimitKph": 80,
+    "ttlSeconds": 180,
+    "source": "accessory"
+  }
+}
+```
+
+Heartbeat only:
+
+```json
+{
+  "type": "apexline.blitzer.heartbeat",
+  "heartbeat": {
+    "ttlSeconds": 120,
+    "status": "Accessory notification bridge armed"
+  }
+}
+```
+
+## Setup Flow
+
+1. Build the companion app with the `App` and `Shared` sources.
+2. Build the `DataProvider` sources into an Accessory Data Provider extension.
+3. Pair/select the accessory using `AccessoryForwardingController.showPicker()`.
+4. Ask iOS to forward notifications with `AccessoryForwardingController.requestForwarding()`.
+5. In the system prompt, enable Blitzer.de PRO notifications for the accessory.
+6. The extension parses forwarded Blitzer notification text and emits Apexline's normalized alert JSON.
+
+## Important Limitation
+
+Even Realities can forward notifications because their own app is the glasses companion. Apexline's EvenHub app runs inside that app's WebView, so our separate companion cannot directly read or mutate that WebView. The supported bridge still needs either Even exposing a native-to-web message path, or a small accessory/relay/cloud handoff that can pass the normalized JSON into Apexline.

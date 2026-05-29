@@ -110,7 +110,7 @@ type BlitzerAlert = {
   speedLimitKph: number | null;
   reportedAt: number;
   expiresAt: number;
-  source: "launch" | "dev" | "notification";
+  source: "launch" | "dev" | "notification" | "accessory";
   reportStatus: "unreported" | "confirmed" | "gone";
 };
 type BlitzerAlertInput = {
@@ -124,6 +124,12 @@ type BlitzerAlertInput = {
 type BlitzerBridgeHeartbeatInput = {
   ttlSeconds?: number;
   status?: string;
+};
+type BlitzerBridgeMessage = {
+  type?: string;
+  kind?: string;
+  alert?: BlitzerAlertInput | string;
+  heartbeat?: BlitzerBridgeHeartbeatInput;
 };
 
 const FAVORITES_STORAGE_KEY = "apexline-favorites";
@@ -445,6 +451,12 @@ function installDevGlassHarness(): void {
   });
   document.addEventListener("apexline-blitzer-bridge-heartbeat", (event) => {
     markBlitzerBridgeActive((event as CustomEvent<unknown>).detail as BlitzerBridgeHeartbeatInput | undefined);
+  });
+  document.addEventListener("apexline-native-bridge", (event) => {
+    ingestNativeBridgeMessage((event as CustomEvent<unknown>).detail);
+  });
+  window.addEventListener("message", (event) => {
+    ingestNativeBridgeMessage(event.data);
   });
 }
 
@@ -2010,6 +2022,40 @@ function markBlitzerBridgeActive(input?: BlitzerBridgeHeartbeatInput): void {
 
 function isBlitzerBridgeActive(): boolean {
   return state.blitzerEnabled && Date.now() <= state.blitzerBridgeExpiresAt;
+}
+
+function ingestNativeBridgeMessage(message: unknown): void {
+  const payload = normalizeBridgeMessage(message);
+  if (!payload) {
+    return;
+  }
+
+  const type = payload.type ?? payload.kind;
+  if (type === "apexline.blitzer.heartbeat") {
+    markBlitzerBridgeActive(payload.heartbeat);
+    return;
+  }
+
+  if (type === "apexline.blitzer.alert" && payload.alert != null) {
+    ingestBlitzerAlert(payload.alert, "accessory");
+  }
+}
+
+function normalizeBridgeMessage(message: unknown): BlitzerBridgeMessage | null {
+  if (typeof message === "string") {
+    try {
+      const parsed = JSON.parse(message) as unknown;
+      return normalizeBridgeMessage(parsed);
+    } catch {
+      return null;
+    }
+  }
+
+  if (!message || typeof message !== "object") {
+    return null;
+  }
+
+  return message as BlitzerBridgeMessage;
 }
 
 function ingestBlitzerAlert(input: BlitzerAlertInput | string, fallbackSource: BlitzerAlert["source"]): void {
