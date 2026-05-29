@@ -517,30 +517,39 @@ function drawModeMenu(
 function drawStartupSplash(context: CanvasRenderingContext2D, frame: number): void {
   const phase = frame % 10;
   const progress = Math.min(1, frame / 32);
+  const roadProgress = Math.min(1, progress + 0.045);
   const marker = splashRoutePoint(progress);
   const markerNext = splashRoutePoint(Math.min(1, progress + 0.025));
   context.save();
   context.textAlign = "center";
   context.setLineDash([]);
-  context.strokeStyle = "rgba(124, 255, 158, 0.28)";
+
+  context.strokeStyle = "rgba(124, 255, 158, 0.3)";
+  context.lineWidth = 11;
+  context.lineCap = "round";
+  context.beginPath();
+  drawSplashRoutePath(context, 0, 0, roadProgress);
+  context.stroke();
+
+  context.strokeStyle = "rgba(0, 0, 0, 0.22)";
   context.lineWidth = 10;
   context.lineCap = "round";
   context.beginPath();
-  drawSplashRoutePath(context);
+  drawSplashRoutePath(context, 0, 0, roadProgress);
   context.stroke();
 
-  context.strokeStyle = "rgba(124, 255, 158, 0.34)";
+  context.strokeStyle = "rgba(124, 255, 158, 0.36)";
   context.lineWidth = 3;
   context.beginPath();
-  drawSplashRoutePath(context);
+  drawSplashRoutePath(context, 0, 0, roadProgress);
   context.stroke();
 
-  context.strokeStyle = "rgba(221, 255, 227, 0.9)";
+  context.strokeStyle = "rgba(221, 255, 227, 0.88)";
   context.lineWidth = 2.2;
   context.setLineDash([14, 11]);
   context.lineDashOffset = -phase * 6;
   context.beginPath();
-  drawSplashRoutePath(context);
+  drawSplashRoutePath(context, 0, 0, roadProgress);
   context.stroke();
   context.setLineDash([]);
 
@@ -622,8 +631,9 @@ function drawMorphingApexline(context: CanvasRenderingContext2D, progress: numbe
   context.restore();
 }
 
-function drawSplashRoutePath(context: CanvasRenderingContext2D, offsetX = 0, offsetY = 0): void {
-  SPLASH_HULFTEGG_POINTS.forEach(([x, y], index) => {
+function drawSplashRoutePath(context: CanvasRenderingContext2D, offsetX = 0, offsetY = 0, progress = 1): void {
+  const points = splashRoutePointsUpTo(progress);
+  points.forEach(([x, y], index) => {
     if (index === 0) {
       context.moveTo(x + offsetX, y + offsetY);
     } else {
@@ -634,6 +644,36 @@ function drawSplashRoutePath(context: CanvasRenderingContext2D, offsetX = 0, off
 
 function splashRoutePoint(progress: number): { x: number; y: number } {
   return pointAlongPolyline(SPLASH_HULFTEGG_POINTS, progress);
+}
+
+function splashRoutePointsUpTo(progress: number): Point[] {
+  const clamped = Math.max(0, Math.min(1, progress));
+  if (clamped >= 1) {
+    return SPLASH_HULFTEGG_POINTS;
+  }
+
+  const totalLength = polylineLength(SPLASH_HULFTEGG_POINTS);
+  let remaining = totalLength * clamped;
+  const points: Point[] = [SPLASH_HULFTEGG_POINTS[0]];
+
+  for (let index = 1; index < SPLASH_HULFTEGG_POINTS.length; index += 1) {
+    const previous = SPLASH_HULFTEGG_POINTS[index - 1];
+    const point = SPLASH_HULFTEGG_POINTS[index];
+    const segmentLength = Math.hypot(point[0] - previous[0], point[1] - previous[1]);
+    if (remaining <= segmentLength) {
+      const segmentProgress = segmentLength === 0 ? 0 : remaining / segmentLength;
+      points.push([
+        lerp(previous[0], point[0], segmentProgress),
+        lerp(previous[1], point[1], segmentProgress)
+      ]);
+      return points;
+    }
+
+    remaining -= segmentLength;
+    points.push(point);
+  }
+
+  return points;
 }
 
 function projectHulfteggCorner(coordinates: CoordinatePoint[]): Point[] {
@@ -694,6 +734,13 @@ function pointAlongPolyline(points: Point[], progress: number): { x: number; y: 
 
   const [x, y] = points[points.length - 1];
   return { x, y };
+}
+
+function polylineLength(points: Point[]): number {
+  return points.slice(1).reduce((length, point, index) => {
+    const previous = points[index];
+    return length + Math.hypot(point[0] - previous[0], point[1] - previous[1]);
+  }, 0);
 }
 
 function drawRotatedVehicleMarker(
