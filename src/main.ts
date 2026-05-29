@@ -30,6 +30,8 @@ type AppState = {
   blitzerEnabled: boolean;
   blitzerAlert: BlitzerAlert | null;
   blitzerReportStatus: string;
+  blitzerBridgeLastSeenAt: number | null;
+  blitzerBridgeExpiresAt: number;
   activeSearchField: "origin" | "destination" | null;
   bridgeConnected: boolean;
   locating: boolean;
@@ -56,7 +58,7 @@ type AppState = {
   glassesDestinationFavoriteIndex: number;
   glassesSettingsIndex: number;
   glassesHomeSelectionIndex: number;
-  glassesScreen: "splash" | "homeTransition" | "home" | "homeMenu" | "favoriteOrigin" | "favoriteDestination" | "routeReady" | "settings" | "blitzer";
+  glassesScreen: "splash" | "homeTransition" | "home" | "homeMenu" | "favoriteOrigin" | "favoriteDestination" | "routeReady" | "settings" | "blitzer" | "speed";
   glassesSelectedOrigin: PlaceResult | null;
   devToolsEnabled: boolean;
   selectedPlace: PlaceResult | null;
@@ -92,6 +94,10 @@ type BlitzerAlertInput = {
   ttlSeconds?: number;
   source?: BlitzerAlert["source"];
 };
+type BlitzerBridgeHeartbeatInput = {
+  ttlSeconds?: number;
+  status?: string;
+};
 
 const FAVORITES_STORAGE_KEY = "apexline-favorites";
 const UNIT_SYSTEM_STORAGE_KEY = "apexline-unit-system";
@@ -102,6 +108,7 @@ const NIGHT_MODE_STORAGE_KEY = "apexline-night-mode";
 const ARROW_LAYOUT_STORAGE_KEY = "apexline-arrow-layout";
 const BLITZER_ENABLED_STORAGE_KEY = "apexline-blitzer-enabled";
 const BLITZER_ALERT_TTL_MS = 8 * 60 * 1000;
+const BLITZER_BRIDGE_ACTIVE_MS = 45000;
 const BLITZER_PULSE_FRAME_MS = 120;
 const BLITZER_PULSE_FRAMES = 28;
 const GLASSES_SPLASH_MS = 3450;
@@ -123,6 +130,8 @@ const state: AppState = {
   blitzerEnabled: loadBlitzerEnabled(),
   blitzerAlert: null,
   blitzerReportStatus: "No Blitzer alert",
+  blitzerBridgeLastSeenAt: null,
+  blitzerBridgeExpiresAt: 0,
   activeSearchField: null,
   bridgeConnected: false,
   locating: false,
@@ -321,6 +330,7 @@ function installDevGlassHarness(): void {
   const devWindow = window as Window & {
     __apexlineDevGlassInput?: (action: GlassAction) => void;
     __apexlineBlitzerAlert?: (alert: BlitzerAlertInput | string) => void;
+    __apexlineBlitzerBridgeHeartbeat?: (heartbeat?: BlitzerBridgeHeartbeatInput) => void;
     __apexlineDebugState?: () => Record<string, unknown>;
   };
 
@@ -334,6 +344,9 @@ function installDevGlassHarness(): void {
   devWindow.__apexlineBlitzerAlert = (alert) => {
     ingestBlitzerAlert(alert, "dev");
   };
+  devWindow.__apexlineBlitzerBridgeHeartbeat = (heartbeat) => {
+    markBlitzerBridgeActive(heartbeat);
+  };
   devWindow.__apexlineDebugState = devDebugSnapshot;
   document.addEventListener("apexline-dev-glass-input", (event) => {
     const action = (event as CustomEvent<unknown>).detail;
@@ -345,6 +358,9 @@ function installDevGlassHarness(): void {
   });
   document.addEventListener("apexline-blitzer-alert", (event) => {
     ingestBlitzerAlert((event as CustomEvent<unknown>).detail as BlitzerAlertInput | string, "dev");
+  });
+  document.addEventListener("apexline-blitzer-bridge-heartbeat", (event) => {
+    markBlitzerBridgeActive((event as CustomEvent<unknown>).detail as BlitzerBridgeHeartbeatInput | undefined);
   });
 }
 
@@ -360,6 +376,8 @@ function devDebugSnapshot(): Record<string, unknown> {
     showControlHints: state.showControlHints,
     arrowLayout: state.arrowLayout,
     blitzerEnabled: state.blitzerEnabled,
+    blitzerBridgeActive: isBlitzerBridgeActive(),
+    blitzerBridgeLastSeenAt: state.blitzerBridgeLastSeenAt,
     blitzerAlert: currentBlitzerAlert(),
     blitzerReportStatus: state.blitzerReportStatus,
     settingsIndex: state.glassesSettingsIndex,
@@ -439,6 +457,14 @@ function applyLaunchOptions(): void {
   if (params.has("blitzer")) {
     state.blitzerEnabled = params.get("blitzer") !== "0";
     saveBlitzerEnabled();
+  }
+
+  if (params.has("blitzerBridge")) {
+    state.blitzerEnabled = params.get("blitzerBridge") !== "0";
+    saveBlitzerEnabled();
+    if (state.blitzerEnabled) {
+      markBlitzerBridgeActive({ status: "Blitzer.de PRO bridge connected" });
+    }
   }
 
   const blitzerText = params.get("blitzerText");
@@ -661,7 +687,7 @@ function renderSettingsMenu(): string {
         </div>
         <label class="setting-toggle">
           <input type="checkbox" data-blitzer-enabled ${state.blitzerEnabled ? "checked" : ""} />
-          <span>Blitzer.de Pro alerts</span>
+          <span>Blitzer.de PRO bridge</span>
         </label>
         <label class="setting-toggle">
           <input type="checkbox" data-control-hints ${state.showControlHints ? "checked" : ""} />
@@ -948,13 +974,13 @@ function renderBlitzerPanel(): string {
   const alert = currentBlitzerAlert();
   if (!alert) {
     return state.devToolsEnabled
-      ? `<p class="blitzer-status">Blitzer armed. Use dev simulate to test.</p>`
+      ? `<p class="blitzer-status">${escapeHtml(isBlitzerBridgeActive() ? "Blitzer.de PRO bridge armed." : "Blitzer.de PRO bridge waiting.")}</p>`
       : "";
   }
 
   return `
     <div class="blitzer-alert">
-      <span>Blitzer.de Pro</span>
+      <span>Blitzer.de PRO bridge</span>
       <strong>${escapeHtml(formatBlitzerDistance(alert))} ahead · ${escapeHtml(formatBlitzerSpeedLimit(alert))}</strong>
       <p>${escapeHtml(state.blitzerReportStatus || "Unreported")}</p>
     </div>
@@ -1484,6 +1510,26 @@ function formatCurrentSpeed(): string {
   return formatSpeed(state.position?.speedMetersPerSecond ?? null, state.unitSystem);
 }
 
+function markBlitzerBridgeActive(input?: BlitzerBridgeHeartbeatInput): void {
+  const now = Date.now();
+  const ttlMs = Math.max(
+    5000,
+    Math.min(5 * 60 * 1000, (input?.ttlSeconds ?? BLITZER_BRIDGE_ACTIVE_MS / 1000) * 1000)
+  );
+  state.blitzerEnabled = true;
+  saveBlitzerEnabled();
+  state.blitzerBridgeLastSeenAt = now;
+  state.blitzerBridgeExpiresAt = now + ttlMs;
+  state.blitzerReportStatus = input?.status ?? "Blitzer.de PRO bridge connected";
+  void updateGlass();
+  render();
+  syncDevDebugState();
+}
+
+function isBlitzerBridgeActive(): boolean {
+  return state.blitzerEnabled && Date.now() <= state.blitzerBridgeExpiresAt;
+}
+
 function ingestBlitzerAlert(input: BlitzerAlertInput | string, fallbackSource: BlitzerAlert["source"]): void {
   const normalized = normalizeBlitzerAlertInput(input, fallbackSource);
   if (!normalized) {
@@ -1492,8 +1538,7 @@ function ingestBlitzerAlert(input: BlitzerAlertInput | string, fallbackSource: B
     return;
   }
 
-  state.blitzerEnabled = true;
-  saveBlitzerEnabled();
+  markBlitzerBridgeActive({ ttlSeconds: normalized.source === "dev" ? 180 : undefined });
   state.blitzerAlert = normalized;
   state.blitzerReportStatus = "Blitzer alert received";
   startBlitzerPulse();
@@ -2255,6 +2300,10 @@ function currentSnapshot(): GuidanceSnapshot {
       return blitzerGlassesSnapshot();
     }
 
+    if (state.glassesScreen === "speed") {
+      return speedGlassesSnapshot();
+    }
+
     if (state.glassesScreen === "favoriteOrigin") {
       return favoriteGlassesSnapshot("origin");
     }
@@ -2349,12 +2398,13 @@ function homeMenuGlassesSnapshot(): GuidanceSnapshot {
   const hasRoute = Boolean(state.position && state.selectedPlace);
   const hasFavorites = glassesPickerOptions("destination").length > 0;
   const blitzerAlert = currentBlitzerAlert();
+  const bridgeActive = isBlitzerBridgeActive();
   const homeVariant = state.glassesScreen === "homeTransition" ? "transition" : "menu";
   return {
     active: false,
     title: "Choose Mode",
     primary: "Apexline",
-    secondary: blitzerAlert ? "Camera ahead" : hasRoute ? "Phone route ready" : hasFavorites ? "Favorites ready" : state.position ? "GPS ready" : "No GPS",
+    secondary: blitzerAlert ? "Speed camera ahead" : hasRoute ? "Phone route ready" : hasFavorites ? "Favorites ready" : state.position ? "GPS ready" : "No GPS",
     tertiary: "",
     hint: state.showControlHints ? "Swipe move | Click select | Double back" : "",
     arrow: "--",
@@ -2368,20 +2418,22 @@ function homeMenuGlassesSnapshot(): GuidanceSnapshot {
     hazardPulseFrame: blitzerAlert ? blitzerPulseFrame : undefined,
     pickerItems: [
       { label: "Navigation", badge: hasRoute ? "READY" : hasFavorites ? "FAV" : state.position ? "GPS" : "WAIT", selected: state.glassesHomeSelectionIndex === 0 },
-      { label: "Blitzer", badge: blitzerAlert ? formatBlitzerDistance(blitzerAlert) : state.blitzerEnabled ? "ARMED" : "OFF", selected: state.glassesHomeSelectionIndex === 1 },
-      { label: "Settings", selected: state.glassesHomeSelectionIndex === 2 }
+      { label: "Blitzer.de PRO bridge", badge: blitzerAlert ? formatBlitzerDistance(blitzerAlert) : bridgeActive ? "ARMED" : "WAIT", selected: state.glassesHomeSelectionIndex === 1 },
+      { label: "Speed", badge: state.position ? "LIVE" : "WAIT", selected: state.glassesHomeSelectionIndex === 2 },
+      { label: "Settings", selected: state.glassesHomeSelectionIndex === 3 }
     ]
   };
 }
 
 function blitzerGlassesSnapshot(): GuidanceSnapshot {
   const alert = currentBlitzerAlert();
+  const bridgeActive = isBlitzerBridgeActive();
   return {
     active: false,
-    title: "Blitzer",
-    primary: alert ? `${formatBlitzerDistance(alert)} ahead` : "No camera ahead",
-    secondary: alert ? formatBlitzerSpeedLimit(alert) : "Waiting for Blitzer.de Pro",
-    tertiary: state.blitzerReportStatus,
+    title: "Blitzer.de PRO bridge",
+    primary: alert ? `${formatBlitzerDistance(alert)} ahead` : bridgeActive ? "Bridge armed" : "Bridge waiting",
+    secondary: alert ? formatBlitzerSpeedLimit(alert) : "Speed display only",
+    tertiary: bridgeActive ? state.blitzerReportStatus : "No bridge heartbeat",
     hint: state.showControlHints ? "Press confirm | Down gone | Double back" : "",
     arrow: "--",
     nextStepIndex: 0,
@@ -2389,8 +2441,28 @@ function blitzerGlassesSnapshot(): GuidanceSnapshot {
     offRoute: false,
     speedLabel: formatCurrentSpeed(),
     showControlHints: state.showControlHints,
+    showSpeed: true,
+    bridgeActive,
     hazardAlert: alert ? blitzerDisplayAlert(alert) : undefined,
     hazardPulseFrame: alert ? blitzerPulseFrame : undefined
+  };
+}
+
+function speedGlassesSnapshot(): GuidanceSnapshot {
+  return {
+    active: false,
+    title: "Speed",
+    primary: formatCurrentSpeed(),
+    secondary: state.locationSource ? locationSourceLabel() : "Waiting for GPS",
+    tertiary: state.mode === "motorcycle" ? "Moto" : "Drive",
+    hint: state.showControlHints ? "Double back | Long settings" : "",
+    arrow: "--",
+    nextStepIndex: 0,
+    distanceToStepMeters: 0,
+    offRoute: false,
+    showControlHints: state.showControlHints,
+    showSpeed: true,
+    speedLabel: formatCurrentSpeed()
   };
 }
 
@@ -2471,7 +2543,7 @@ function handleGlassInput(action: GlassAction): void {
     return;
   }
 
-  if (action === "long" && !state.navigating) {
+  if (action === "long" && !state.navigating && (state.glassesScreen === "home" || state.glassesScreen === "homeMenu")) {
     state.glassesScreen = "home";
     void updateGlass();
     render();
@@ -2525,6 +2597,11 @@ function handleGlassInput(action: GlassAction): void {
     return;
   }
 
+  if (state.glassesScreen === "speed") {
+    handleSpeedDisplayInput(action);
+    return;
+  }
+
   if (state.glassesScreen === "favoriteOrigin") {
     handleFavoritePickerInput("origin", action);
     return;
@@ -2558,7 +2635,7 @@ function handleHomeMenuInput(action: GlassAction): void {
 
   if (action === "up" || action === "down") {
     const direction = action === "up" ? -1 : 1;
-    state.glassesHomeSelectionIndex = (state.glassesHomeSelectionIndex + direction + 3) % 3;
+    state.glassesHomeSelectionIndex = (state.glassesHomeSelectionIndex + direction + homeMenuItemCount()) % homeMenuItemCount();
     void updateGlass();
     return;
   }
@@ -2577,6 +2654,13 @@ function handleHomeMenuInput(action: GlassAction): void {
   }
 
   if (state.glassesHomeSelectionIndex === 2) {
+    state.glassesScreen = "speed";
+    void updateGlass();
+    render();
+    return;
+  }
+
+  if (state.glassesHomeSelectionIndex === 3) {
     state.glassesScreen = "settings";
     void updateGlass();
     render();
@@ -2586,6 +2670,10 @@ function handleHomeMenuInput(action: GlassAction): void {
   state.glassesScreen = "favoriteOrigin";
   void updateGlass();
   render();
+}
+
+function homeMenuItemCount(): number {
+  return 4;
 }
 
 function handleBlitzerInput(action: GlassAction): void {
@@ -2608,6 +2696,24 @@ function handleBlitzerInput(action: GlassAction): void {
     void updateGlass();
     render();
   }
+}
+
+function handleSpeedDisplayInput(action: GlassAction): void {
+  if (action === "double") {
+    state.glassesScreen = "home";
+    void updateGlass();
+    render();
+    return;
+  }
+
+  if (action === "long") {
+    state.glassesScreen = "settings";
+    void updateGlass();
+    render();
+    return;
+  }
+
+  void updateGlass();
 }
 
 function handleFavoritePickerInput(target: GlassPickerTarget, action: GlassAction): void {
@@ -2831,8 +2937,8 @@ function glassesSettings(): Array<{ label: string; value: () => string; toggle: 
       }
     },
     {
-      label: "Blitzer",
-      value: () => state.blitzerEnabled ? "Alerts armed" : "Alerts hidden",
+      label: "Blitzer.de PRO bridge",
+      value: () => isBlitzerBridgeActive() ? "Bridge armed" : state.blitzerEnabled ? "Waiting" : "Hidden",
       toggle: () => {
         state.blitzerEnabled = !state.blitzerEnabled;
         saveBlitzerEnabled();

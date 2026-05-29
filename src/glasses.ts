@@ -470,7 +470,7 @@ function drawIdleImage(
     return;
   }
 
-  if (title === "Blitzer") {
+  if (title === "Blitzer" || title === "Blitzer.de PRO bridge") {
     drawBlitzerMenu(context, snapshot);
     return;
   }
@@ -485,6 +485,8 @@ function drawIdleImage(
     drawRouteReadyMenu(context, primary, secondary, tertiary);
   } else if (title === "Settings") {
     drawSettingsMenu(context, primary, secondary, snapshot?.hint ?? "");
+  } else if (title === "Speed") {
+    drawSpeedOnlyMenu(context, primary, secondary, tertiary, snapshot?.hint ?? "");
   } else {
     drawHomeMenu(context, primary, secondary, tertiary, snapshot?.hint ?? "");
   }
@@ -770,7 +772,7 @@ function lerp(start: number, end: number, progress: number): number {
 function drawBlitzerMenu(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot | undefined): void {
   const alert = snapshot?.hazardAlert;
   if (!alert) {
-    drawStandaloneBlitzerStandby(context, snapshot?.speedLabel ?? "--");
+    drawStandaloneBlitzerStandby(context, snapshot?.speedLabel ?? "--", Boolean(snapshot?.bridgeActive));
     drawTinyHint(context, snapshot?.hint ?? "", 32, 270);
     return;
   }
@@ -1147,20 +1149,23 @@ function drawStandaloneBlitzerAlert(context: CanvasRenderingContext2D, alert: Gu
   context.fillText(trimImageLine(alert.distanceLabel, 12), 92, 166);
 
   context.fillStyle = HUD_PRIMARY;
-  context.font = "bold 11px system-ui, sans-serif";
-  context.fillText("AHEAD", 92, 181);
+  context.font = "bold 10px system-ui, sans-serif";
+  context.fillText(activePulse ? "SPEED CAMERA" : "CAMERA", 92, 181);
+  context.fillText("AHEAD", 92, 194);
   context.restore();
 
   drawStandaloneBlitzerSpeed(context, alert.currentSpeedLabel ?? "--");
 }
 
-function drawStandaloneBlitzerStandby(context: CanvasRenderingContext2D, speedLabel: string): void {
+function drawStandaloneBlitzerStandby(context: CanvasRenderingContext2D, speedLabel: string, bridgeActive: boolean): void {
   context.save();
-  drawBlitzerLogo(context, 92, 126, 0.24);
-  context.fillStyle = "rgba(124, 255, 158, 0.62)";
-  context.font = "bold 12px system-ui, sans-serif";
-  context.textAlign = "center";
-  context.fillText("ARMED", 92, 176);
+  if (bridgeActive) {
+    drawBlitzerLogo(context, 92, 126, 0.24);
+    context.fillStyle = "rgba(124, 255, 158, 0.62)";
+    context.font = "bold 12px system-ui, sans-serif";
+    context.textAlign = "center";
+    context.fillText("ARMED", 92, 176);
+  }
 
   context.restore();
   drawStandaloneBlitzerSpeed(context, speedLabel);
@@ -1223,13 +1228,39 @@ function drawBlitzerAlertStrip(
 
   context.fillStyle = muted ? "rgba(124, 255, 158, 0.58)" : HUD_PRIMARY;
   context.font = `bold ${compact ? 10 : 11}px system-ui, sans-serif`;
-  context.fillText(trimImageLine(alert.speedLimitLabel, compact ? 9 : 12), x + (compact ? 36 : 54), y + (compact ? 27 : 39));
+  const statusText = activePulse ? "SPEED CAMERA AHEAD" : alert.speedLimitLabel;
+  context.fillText(trimImageLine(statusText, compact ? 18 : 20), x + (compact ? 36 : 54), y + (compact ? 27 : 39));
 
   context.fillStyle = muted ? "rgba(221, 255, 227, 0.72)" : HUD_TEXT;
   context.font = `bold ${compact ? 12 : 16}px system-ui, sans-serif`;
   context.textAlign = "right";
   context.fillText(alert.currentSpeedLabel ?? "--", x + width - (compact ? 8 : 12), y + (compact ? 25 : 36));
   context.restore();
+}
+
+function drawSpeedOnlyMenu(
+  context: CanvasRenderingContext2D,
+  primary: string,
+  secondary: string,
+  tertiary: string,
+  hint: string
+): void {
+  drawMenuChrome(context, "Speed", "");
+  context.textAlign = "right";
+  context.fillStyle = HUD_PRIMARY;
+  context.font = "bold 58px system-ui, sans-serif";
+  context.fillText(trimImageLine(primary, 10), 532, 156);
+
+  context.fillStyle = HUD_MUTED;
+  context.font = "bold 13px system-ui, sans-serif";
+  context.fillText(trimImageLine(tertiary.toUpperCase(), 16), 532, 190);
+
+  context.textAlign = "left";
+  context.fillStyle = HUD_TEXT;
+  context.font = "bold 18px system-ui, sans-serif";
+  context.fillText(trimImageLine(secondary, 22), 40, 154);
+
+  drawTinyHint(context, hint, 40, 270);
 }
 
 function drawBlitzerLogo(context: CanvasRenderingContext2D, x: number, y: number, scale: number): void {

@@ -43,6 +43,7 @@ export type GuidanceSnapshot = {
   pickerItems?: GuidancePickerItem[];
   hazardAlert?: GuidanceHazardAlert;
   hazardPulseFrame?: number;
+  bridgeActive?: boolean;
 };
 
 export type PositionSample = {
