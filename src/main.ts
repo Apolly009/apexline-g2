@@ -2669,11 +2669,13 @@ function handleGlassInput(action: GlassAction): void {
   render();
 }
 
+function requestGlassExit(): void {
+  void glassDisplay.shutdown();
+}
+
 function handleHomeMenuInput(action: GlassAction): void {
   if (action === "double") {
-    state.glassesScreen = "home";
-    void updateGlass();
-    render();
+    requestGlassExit();
     return;
   }
 
