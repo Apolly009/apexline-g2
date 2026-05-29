@@ -291,9 +291,13 @@ function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSna
     return;
   }
 
+  if (snapshot.nightMode) {
+    drawNightArrowImage(context, snapshot);
+    return;
+  }
+
   drawHudHeader(context, snapshot);
-  const outline = snapshot.nightMode === true;
-  drawRouteCue(context, snapshot, outline ? 58 : 44, outline ? 72 : 58, outline ? 136 : 168, outline ? 150 : 180, outline);
+  drawRouteCue(context, snapshot, 44, 58, 168, 180);
 
   context.fillStyle = HUD_TEXT;
   context.font = "bold 30px system-ui, sans-serif";
@@ -329,6 +333,11 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
     return;
   }
 
+  if (snapshot.nightMode) {
+    drawNightMapImage(context, snapshot);
+    return;
+  }
+
   drawPreviewRoute(context, snapshot, 92, 54, 392, 206, true);
   drawVehicleMarker(context, GLASS_WIDTH / 2, 246);
 
@@ -352,6 +361,25 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
   context.fillStyle = HUD_MUTED;
   context.font = "bold 11px system-ui, sans-serif";
   context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 24), 534, 198);
+}
+
+function drawNightArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
+  drawNightModeLabel(context, snapshot);
+  context.save();
+  context.globalAlpha = 0.58;
+  drawRouteCue(context, snapshot, 70, 76, 128, 144, true);
+  context.restore();
+  drawNightDataStack(context, snapshot);
+}
+
+function drawNightMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
+  drawNightModeLabel(context, snapshot);
+  context.save();
+  context.globalAlpha = 0.62;
+  drawPreviewRoute(context, snapshot, 118, 70, 340, 178, true, true);
+  context.restore();
+  drawNightVehicleMarker(context, GLASS_WIDTH / 2, 246);
+  drawNightDataStack(context, snapshot);
 }
 
 function drawIdleImage(
@@ -652,6 +680,53 @@ function drawHudHeader(context: CanvasRenderingContext2D, snapshot: GuidanceSnap
   context.fillText(trimImageLine(snapshot.hint.replace(" | ", "  "), 32), 548, 28);
 }
 
+function drawNightModeLabel(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
+  context.fillStyle = "rgba(124, 255, 158, 0.36)";
+  context.font = "bold 11px system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillText(snapshot.title.replace("Apex ", "").toUpperCase(), 32, 28);
+
+  context.strokeStyle = "rgba(124, 255, 158, 0.16)";
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(32, 36);
+  context.lineTo(74, 36);
+  context.stroke();
+}
+
+function drawNightDataStack(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
+  context.textAlign = "right";
+  context.fillStyle = "rgba(124, 255, 158, 0.72)";
+  context.font = "bold 25px system-ui, sans-serif";
+  context.fillText(formatPrimaryDistance(snapshot.primary), 534, 102);
+
+  context.strokeStyle = "rgba(124, 255, 158, 0.3)";
+  context.lineWidth = 1.5;
+  context.beginPath();
+  context.moveTo(474, 113);
+  context.lineTo(534, 113);
+  context.stroke();
+
+  context.fillStyle = "rgba(124, 255, 158, 0.64)";
+  context.font = "bold 15px system-ui, sans-serif";
+  context.fillText(formatPrimaryAction(snapshot.primary, snapshot.arrow), 534, 148);
+
+  if (snapshot.showSpeed && snapshot.speedLabel) {
+    context.fillStyle = "rgba(124, 255, 158, 0.68)";
+    context.font = "bold 18px system-ui, sans-serif";
+    context.fillText(snapshot.speedLabel, 534, 174);
+  }
+
+  context.fillStyle = "rgba(124, 255, 158, 0.38)";
+  context.font = "bold 11px system-ui, sans-serif";
+  context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 22), 534, 236);
+
+  context.textAlign = "left";
+  context.fillStyle = "rgba(124, 255, 158, 0.32)";
+  context.font = "bold 10px system-ui, sans-serif";
+  context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 20), 42, 252);
+}
+
 function drawHudSpeedValue(
   context: CanvasRenderingContext2D,
   snapshot: GuidanceSnapshot,
@@ -763,7 +838,9 @@ function drawTurnGlyph(
     return;
   }
 
-  drawLaneRails(context, centerX, centerY, size);
+  if (!outline) {
+    drawLaneRails(context, centerX, centerY, size);
+  }
   drawPremiumRoutePath(context, [
     [centerX, centerY + size * 0.68],
     [centerX, centerY - size * 0.5]
@@ -928,21 +1005,50 @@ function sideRoadColor(roadClass: "major" | "medium" | "minor", mapMode: boolean
 }
 
 function drawVehicleMarker(context: CanvasRenderingContext2D, x: number, y: number): void {
-  context.fillStyle = "rgba(0, 0, 0, 0.58)";
+  context.fillStyle = "rgba(0, 0, 0, 0.52)";
   context.beginPath();
-  context.arc(x, y, 15, 0, Math.PI * 2);
+  context.moveTo(x, y - 17);
+  context.lineTo(x + 17, y + 17);
+  context.lineTo(x, y + 10);
+  context.lineTo(x - 17, y + 17);
+  context.closePath();
   context.fill();
 
   context.strokeStyle = "rgba(247, 210, 99, 0.88)";
-  context.lineWidth = 2.5;
+  context.lineWidth = 3;
   context.beginPath();
-  context.arc(x, y, 11, 0, Math.PI * 2);
+  context.moveTo(x, y - 13);
+  context.lineTo(x + 12, y + 13);
+  context.lineTo(x, y + 7);
+  context.lineTo(x - 12, y + 13);
+  context.closePath();
+  context.stroke();
+}
+
+function drawNightVehicleMarker(context: CanvasRenderingContext2D, x: number, y: number): void {
+  context.save();
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.strokeStyle = "rgba(0, 0, 0, 0.68)";
+  context.lineWidth = 8;
+  context.beginPath();
+  context.moveTo(x, y - 14);
+  context.lineTo(x + 13, y + 14);
+  context.lineTo(x, y + 8);
+  context.lineTo(x - 13, y + 14);
+  context.closePath();
   context.stroke();
 
-  context.fillStyle = HUD_PRIMARY;
+  context.strokeStyle = "rgba(124, 255, 158, 0.58)";
+  context.lineWidth = 2.5;
   context.beginPath();
-  context.arc(x, y, 4, 0, Math.PI * 2);
-  context.fill();
+  context.moveTo(x, y - 14);
+  context.lineTo(x + 13, y + 14);
+  context.lineTo(x, y + 8);
+  context.lineTo(x - 13, y + 14);
+  context.closePath();
+  context.stroke();
+  context.restore();
 }
 
 function drawAlert(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
@@ -1007,8 +1113,8 @@ function drawPremiumRoutePath(
   context.lineWidth = lineWidth;
   drawSmoothPath(context, points);
 
-  context.strokeStyle = "rgba(247, 210, 99, 0.74)";
-  context.lineWidth = Math.max(1.6, lineWidth * 0.16);
+  context.strokeStyle = outline ? "rgba(124, 255, 158, 0.22)" : "rgba(247, 210, 99, 0.74)";
+  context.lineWidth = outline ? 0.9 : Math.max(1.6, lineWidth * 0.16);
   drawSmoothPath(context, points.slice(Math.max(0, points.length - 2)));
 }
 
@@ -1064,12 +1170,14 @@ function drawChevronArrowHead(
   context.lineTo(rightX, rightY);
   context.stroke();
 
-  context.strokeStyle = "rgba(247, 210, 99, 0.7)";
-  context.lineWidth = 2;
-  context.beginPath();
-  context.moveTo(x, y);
-  context.lineTo(x + Math.sin(radians) * size * 0.5, y - Math.cos(radians) * size * 0.5);
-  context.stroke();
+  if (!outline) {
+    context.strokeStyle = "rgba(247, 210, 99, 0.7)";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(x, y);
+    context.lineTo(x + Math.sin(radians) * size * 0.5, y - Math.cos(radians) * size * 0.5);
+    context.stroke();
+  }
 }
 
 function roundRect(
