@@ -1181,18 +1181,28 @@ function drawBlitzerLogo(context: CanvasRenderingContext2D, x: number, y: number
   context.save();
   context.translate(x, y);
   context.scale(scale, scale);
-  context.fillStyle = "rgba(124, 255, 158, 0.72)";
-  for (const [top, width] of [[0, 56], [28, 82], [64, 112]] as const) {
+  context.strokeStyle = "rgba(124, 255, 158, 0.78)";
+  context.lineWidth = 13;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+
+  for (const [offset, width] of [[0, 72], [30, 96], [64, 126]] as const) {
+    const left = -width / 2;
+    const right = width / 2;
+    const centerY = offset - 32;
     context.beginPath();
-    context.moveTo(0, top);
-    context.lineTo(width / 2, top + 18);
-    context.lineTo(width, top);
-    context.lineTo(width - 10, top - 22);
-    context.lineTo(width / 2, top - 10);
-    context.lineTo(10, top - 22);
-    context.closePath();
-    context.fill();
+    context.moveTo(left, centerY - 15);
+    context.lineTo(0, centerY + 4);
+    context.lineTo(right, centerY - 15);
+    context.stroke();
   }
+
+  context.strokeStyle = "rgba(124, 255, 158, 0.26)";
+  context.lineWidth = 5;
+  context.beginPath();
+  context.moveTo(-76, 48);
+  context.lineTo(76, 48);
+  context.stroke();
   context.restore();
 }
 
