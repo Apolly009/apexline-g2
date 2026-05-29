@@ -1,5 +1,14 @@
 import { makeGuidanceSnapshot, makeIdleSnapshot, type GuidanceHazardAlert, type GuidanceSnapshot, type PositionSample } from "./guidance";
-import { GlassDisplay } from "./glasses";
+import { GlassDisplay, type GlassImuSample } from "./glasses";
+import {
+  estimateAccelerationLockOffset,
+  headingFromOrientationEvent,
+  imuYawDeltaDegrees,
+  normalizeDegrees,
+  normalizeSignedDegrees,
+  type PlanarVector,
+  smoothHeadingDegrees
+} from "./heading";
 import L, { type LatLngExpression, type Map as LeafletMap } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -22,6 +31,7 @@ type AppState = {
   mode: TravelMode;
   unitSystem: UnitSystem;
   guidanceView: "arrows" | "map";
+  headingSource: "travel" | "phone" | "glasses";
   showSideRoads: boolean;
   showSpeed: boolean;
   showControlHints: boolean;
@@ -64,6 +74,21 @@ type AppState = {
   selectedPlace: PlaceResult | null;
   route: RouteResult | null;
   position: PositionSample | null;
+  phoneHeadingDegrees: number | null;
+  phoneHeadingAccuracyDegrees: number | null;
+  phoneHeadingStatus: string;
+  lastPhoneHeadingAt: number;
+  phoneAccelerationVector: PlanarVector | null;
+  lastPhoneAccelerationAt: number;
+  glassesHeadingDegrees: number | null;
+  glassesHeadingStatus: string;
+  glassesImuBaseZ: number | null;
+  glassesHeadingAnchorDegrees: number | null;
+  lastGlassesImuSample: GlassImuSample | null;
+  lastGlassesImuAt: number;
+  accelerationLockOffsetDegrees: number | null;
+  accelerationLockConfidence: number;
+  lastAccelerationLockAt: number;
   locationSource: "gps" | "manual" | "simulated" | null;
   locationStatus: string;
   nextStepIndex: number;
@@ -101,6 +126,7 @@ type BlitzerBridgeHeartbeatInput = {
 
 const FAVORITES_STORAGE_KEY = "apexline-favorites";
 const UNIT_SYSTEM_STORAGE_KEY = "apexline-unit-system";
+const HEADING_SOURCE_STORAGE_KEY = "apexline-heading-source";
 const SIDE_ROADS_STORAGE_KEY = "apexline-side-roads";
 const SPEED_DISPLAY_STORAGE_KEY = "apexline-speed-display";
 const CONTROL_HINTS_STORAGE_KEY = "apexline-control-hints";
@@ -125,6 +151,7 @@ const state: AppState = {
   mode: "motorcycle",
   unitSystem: loadUnitSystem(),
   guidanceView: "arrows",
+  headingSource: loadHeadingSource(),
   showSideRoads: loadSideRoadsEnabled(),
   showSpeed: loadSpeedDisplayEnabled(),
   showControlHints: loadControlHintsEnabled(),
@@ -167,6 +194,21 @@ const state: AppState = {
   selectedPlace: null,
   route: null,
   position: null,
+  phoneHeadingDegrees: null,
+  phoneHeadingAccuracyDegrees: null,
+  phoneHeadingStatus: "Travel heading",
+  lastPhoneHeadingAt: 0,
+  phoneAccelerationVector: null,
+  lastPhoneAccelerationAt: 0,
+  glassesHeadingDegrees: null,
+  glassesHeadingStatus: "Waiting for G2 motion",
+  glassesImuBaseZ: null,
+  glassesHeadingAnchorDegrees: null,
+  lastGlassesImuSample: null,
+  lastGlassesImuAt: 0,
+  accelerationLockOffsetDegrees: null,
+  accelerationLockConfidence: 0,
+  lastAccelerationLockAt: 0,
   locationSource: null,
   locationStatus: "No location yet",
   nextStepIndex: 0,
@@ -209,6 +251,9 @@ let lastDevDriveAt = 0;
 let titleTapCount = 0;
 let titleTapResetTimer: number | null = null;
 let devGlassesKeyboardBound = false;
+let phoneHeadingListenerBound = false;
+let phoneMotionListenerBound = false;
+let devGlassesHeadingOverrideAt = 0;
 let glassesSplashTimer: number | null = null;
 let glassesSplashAnimationTimer: number | null = null;
 let glassesHomeTransitionTimer: number | null = null;
@@ -226,7 +271,10 @@ async function boot(): Promise<void> {
   applyLaunchOptions();
   installDevGlassHarness();
   render();
-  state.bridgeConnected = await glassDisplay.connect(handleGlassInput);
+  state.bridgeConnected = await glassDisplay.connect(handleGlassInput, handleGlassesImu);
+  if (state.headingSource === "phone" || state.headingSource === "glasses") {
+    void startPhoneHeadingTracking(false);
+  }
   await updateGlass();
   scheduleGlassesSplashTransition();
   if (shouldAutoRunDevRoute()) {
@@ -332,6 +380,8 @@ function stopGlassesHomeTransitionTimers(): void {
 function installDevGlassHarness(): void {
   const devWindow = window as Window & {
     __apexlineDevGlassInput?: (action: GlassAction) => void;
+    __apexlineDevGlassImu?: (sample: number | Partial<GlassImuSample>) => void;
+    __apexlineDevPhoneMotion?: (sample: Partial<PlanarVector>) => void;
     __apexlineBlitzerAlert?: (alert: BlitzerAlertInput | string) => void;
     __apexlineBlitzerBridgeHeartbeat?: (heartbeat?: BlitzerBridgeHeartbeatInput) => void;
     __apexlineDebugState?: () => Record<string, unknown>;
@@ -343,6 +393,20 @@ function installDevGlassHarness(): void {
     }
 
     runDevGlassInput(action);
+  };
+  devWindow.__apexlineDevGlassImu = (sample) => {
+    if (!state.devToolsEnabled) {
+      return;
+    }
+
+    runDevGlassImu(sample);
+  };
+  devWindow.__apexlineDevPhoneMotion = (sample) => {
+    if (!state.devToolsEnabled) {
+      return;
+    }
+
+    runDevPhoneMotion(sample);
   };
   devWindow.__apexlineBlitzerAlert = (alert) => {
     ingestBlitzerAlert(alert, "dev");
@@ -359,6 +423,20 @@ function installDevGlassHarness(): void {
 
     runDevGlassInput(action);
   });
+  document.addEventListener("apexline-dev-glass-imu", (event) => {
+    if (!state.devToolsEnabled) {
+      return;
+    }
+
+    runDevGlassImu((event as CustomEvent<unknown>).detail as number | Partial<GlassImuSample>);
+  });
+  document.addEventListener("apexline-dev-phone-motion", (event) => {
+    if (!state.devToolsEnabled) {
+      return;
+    }
+
+    runDevPhoneMotion((event as CustomEvent<unknown>).detail as Partial<PlanarVector>);
+  });
   document.addEventListener("apexline-blitzer-alert", (event) => {
     ingestBlitzerAlert((event as CustomEvent<unknown>).detail as BlitzerAlertInput | string, "dev");
   });
@@ -372,6 +450,18 @@ function devDebugSnapshot(): Record<string, unknown> {
     devToolsEnabled: state.devToolsEnabled,
     glassesScreen: state.glassesScreen,
     guidanceView: state.guidanceView,
+    headingSource: state.headingSource,
+    headingStatus: headingStatusSummary(),
+    phoneHeadingAccuracyDegrees: state.phoneHeadingAccuracyDegrees,
+    phoneAccelerationVector: state.phoneAccelerationVector,
+    lastPhoneAccelerationAgeMs: state.lastPhoneAccelerationAt > 0 ? Date.now() - state.lastPhoneAccelerationAt : null,
+    glassesHeadingDegrees: state.glassesHeadingDegrees,
+    glassesImuBaseZ: state.glassesImuBaseZ,
+    lastGlassesImuSample: state.lastGlassesImuSample,
+    lastGlassesImuAgeMs: state.lastGlassesImuAt > 0 ? Date.now() - state.lastGlassesImuAt : null,
+    accelerationLockOffsetDegrees: state.accelerationLockOffsetDegrees,
+    accelerationLockConfidence: state.accelerationLockConfidence,
+    lastAccelerationLockAgeMs: state.lastAccelerationLockAt > 0 ? Date.now() - state.lastAccelerationLockAt : null,
     mode: state.mode,
     unitSystem: state.unitSystem,
     showSideRoads: state.showSideRoads,
@@ -407,6 +497,47 @@ function runDevGlassInput(action: GlassAction): void {
   window.setTimeout(syncDevDebugState, 0);
 }
 
+function runDevGlassImu(sample: number | Partial<GlassImuSample>): void {
+  const imuSample = normalizeDevGlassImuSample(sample);
+  if (!imuSample) {
+    return;
+  }
+
+  handleGlassesImu(imuSample);
+  syncDevDebugState();
+  window.setTimeout(syncDevDebugState, 0);
+}
+
+function runDevPhoneMotion(sample: Partial<PlanarVector>): void {
+  const x = Number(sample.x);
+  const y = Number(sample.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return;
+  }
+
+  state.phoneAccelerationVector = { x, y };
+  state.lastPhoneAccelerationAt = Date.now();
+  syncDevDebugState();
+  window.setTimeout(syncDevDebugState, 0);
+}
+
+function normalizeDevGlassImuSample(sample: number | Partial<GlassImuSample>): GlassImuSample | null {
+  const candidate = typeof sample === "number" ? { z: sample } : sample;
+  const x = Number(candidate.x ?? 0);
+  const y = Number(candidate.y ?? 0);
+  const z = Number(candidate.z);
+  if (![x, y, z].every(Number.isFinite)) {
+    return null;
+  }
+
+  return {
+    x,
+    y,
+    z,
+    timestamp: Number.isFinite(candidate.timestamp) ? Number(candidate.timestamp) : Date.now()
+  };
+}
+
 function isGlassAction(action: unknown): action is GlassAction {
   return action === "press" || action === "double" || action === "up" || action === "down" || action === "long";
 }
@@ -429,6 +560,43 @@ function applyLaunchOptions(): void {
   if (units === "metric" || units === "imperial") {
     state.unitSystem = units;
     saveUnitSystem();
+  }
+
+  const heading = params.get("heading");
+  if (heading === "travel" || heading === "phone" || heading === "glasses") {
+    state.headingSource = heading;
+    saveHeadingSource();
+  }
+
+  const phoneHeading = Number(params.get("phoneHeading"));
+  if (Number.isFinite(phoneHeading)) {
+    state.phoneHeadingDegrees = normalizeDegrees(phoneHeading);
+    state.phoneHeadingAccuracyDegrees = 0;
+    state.lastPhoneHeadingAt = Date.now();
+    state.phoneHeadingStatus = "Dev phone compass";
+  }
+
+  const phoneAccelX = Number(params.get("phoneAccelX"));
+  const phoneAccelY = Number(params.get("phoneAccelY"));
+  if (Number.isFinite(phoneAccelX) && Number.isFinite(phoneAccelY)) {
+    state.phoneAccelerationVector = { x: phoneAccelX, y: phoneAccelY };
+    state.lastPhoneAccelerationAt = Date.now();
+  }
+
+  const glassesHeading = Number(params.get("glassesHeading"));
+  if (Number.isFinite(glassesHeading)) {
+    state.glassesHeadingDegrees = normalizeDegrees(glassesHeading);
+    state.lastGlassesImuAt = Date.now();
+    devGlassesHeadingOverrideAt = Date.now();
+    state.glassesHeadingStatus = "Dev G2 facing";
+  }
+
+  const glassesImuBase = Number(params.get("glassesImuBase"));
+  const glassesImuZ = Number(params.get("glassesImuZ"));
+  if (Number.isFinite(glassesImuBase) && Number.isFinite(glassesImuZ)) {
+    const now = Date.now();
+    handleGlassesImu({ x: 0, y: 0, z: glassesImuBase, timestamp: now });
+    handleGlassesImu({ x: 0, y: 0, z: glassesImuZ, timestamp: now + 16 });
   }
 
   if (params.has("sideRoads")) {
@@ -669,6 +837,18 @@ function renderSettingsMenu(): string {
             <button class="unit-mode ${state.unitSystem === "metric" ? "active" : ""}" data-unit-system="metric" type="button">Metric</button>
           </div>
         </div>
+        <div class="setting-group experimental-setting">
+          <span>HUD heading <em class="experimental-chip">Experimental</em></span>
+          <div class="segmented-row" role="group" aria-label="HUD heading source">
+            <button class="heading-mode ${state.headingSource === "travel" ? "active" : ""}" data-heading-source="travel" type="button">Travel</button>
+            <button class="heading-mode ${state.headingSource === "phone" ? "active" : ""}" data-heading-source="phone" type="button">Phone compass</button>
+            <button class="heading-mode ${state.headingSource === "glasses" ? "active" : ""}" data-heading-source="glasses" type="button">G2 facing</button>
+          </div>
+          ${state.headingSource === "phone" || state.headingSource === "glasses" ? `
+            <button class="settings-action" data-enable-phone-heading type="button">Enable phone compass</button>
+            <span class="setting-note">${escapeHtml(headingStatusSummary())}</span>
+          ` : `<span class="setting-note">Uses GPS course or simulated route heading.</span>`}
+        </div>
         <label class="setting-toggle">
           <input type="checkbox" data-side-roads ${state.showSideRoads ? "checked" : ""} />
           <span>Intersection side roads</span>
@@ -690,7 +870,7 @@ function renderSettingsMenu(): string {
         </div>
         <label class="setting-toggle">
           <input type="checkbox" data-blitzer-enabled ${state.blitzerEnabled ? "checked" : ""} />
-          <span>Blitzer.de PRO bridge</span>
+          <span>Blitzer.de PRO bridge <em class="experimental-chip">Experimental</em></span>
         </label>
         <label class="setting-toggle">
           <input type="checkbox" data-control-hints ${state.showControlHints ? "checked" : ""} />
@@ -940,7 +1120,7 @@ function renderGuidancePanel(): string {
   }
 
   const snapshot = withBlitzerAlert(withDisplayPreferences(
-    makeGuidanceSnapshot(state.route, state.position, state.mode, state.nextStepIndex, state.unitSystem)
+    makeGuidanceSnapshot(state.route, positionForGuidance(state.position), state.mode, state.nextStepIndex, state.unitSystem)
   ));
   if (state.guidanceView === "map") {
     return `
@@ -952,7 +1132,7 @@ function renderGuidancePanel(): string {
       <div>
         <span>Map view</span>
         <strong>${escapeHtml(snapshot.primary)}</strong>
-        <p>${escapeHtml(state.showSpeed ? `${snapshot.speedLabel ?? formatCurrentSpeed()} | ${snapshot.tertiary}` : snapshot.tertiary)}</p>
+        <p>${escapeHtml(`${state.showSpeed ? `${snapshot.speedLabel ?? formatCurrentSpeed()} | ` : ""}${snapshot.tertiary} | ${headingStatusSummary()}`)}</p>
         ${blitzerPanel}
       </div>
     `;
@@ -963,7 +1143,7 @@ function renderGuidancePanel(): string {
     <div>
       <span>Arrow view</span>
       <strong>${escapeHtml(snapshot.primary)}</strong>
-      <p>${escapeHtml(state.showSpeed ? `${snapshot.speedLabel ?? formatCurrentSpeed()} | ${snapshot.secondary}` : snapshot.secondary)}</p>
+      <p>${escapeHtml(`${state.showSpeed ? `${snapshot.speedLabel ?? formatCurrentSpeed()} | ` : ""}${snapshot.secondary} | ${headingStatusSummary()}`)}</p>
       ${blitzerPanel}
     </div>
   `;
@@ -1031,6 +1211,25 @@ function bindEvents(): void {
       void updateGlass();
       render();
     });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-heading-source]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.headingSource = button.dataset.headingSource as AppState["headingSource"];
+      saveHeadingSource();
+      if (state.headingSource === "phone" || state.headingSource === "glasses") {
+        void startPhoneHeadingTracking(false);
+      } else {
+        state.phoneHeadingStatus = "Travel heading";
+        state.glassesHeadingStatus = "Waiting for G2 motion";
+      }
+      void updateGlass();
+      render();
+    });
+  });
+
+  document.querySelector<HTMLButtonElement>("[data-enable-phone-heading]")?.addEventListener("click", () => {
+    void startPhoneHeadingTracking(true);
   });
 
   document.querySelectorAll<HTMLButtonElement>("[data-arrow-layout]").forEach((button) => {
@@ -1461,6 +1660,15 @@ function saveUnitSystem(): void {
   window.localStorage.setItem(UNIT_SYSTEM_STORAGE_KEY, state.unitSystem);
 }
 
+function loadHeadingSource(): AppState["headingSource"] {
+  const stored = window.localStorage.getItem(HEADING_SOURCE_STORAGE_KEY);
+  return stored === "phone" || stored === "glasses" ? stored : "travel";
+}
+
+function saveHeadingSource(): void {
+  window.localStorage.setItem(HEADING_SOURCE_STORAGE_KEY, state.headingSource);
+}
+
 function loadSideRoadsEnabled(): boolean {
   return window.localStorage.getItem(SIDE_ROADS_STORAGE_KEY) === "1";
 }
@@ -1511,6 +1719,274 @@ function saveBlitzerEnabled(): void {
 
 function formatCurrentSpeed(): string {
   return formatSpeed(state.position?.speedMetersPerSecond ?? null, state.unitSystem);
+}
+
+function currentPhoneHeadingDegrees(): number | null {
+  if (state.phoneHeadingDegrees == null) {
+    return null;
+  }
+
+  if (Date.now() - state.lastPhoneHeadingAt > 5000) {
+    return null;
+  }
+
+  return state.phoneHeadingDegrees;
+}
+
+function currentHeadingAnchorDegrees(position?: PositionSample): number | null {
+  return currentPhoneHeadingDegrees() ?? position?.headingDegrees ?? null;
+}
+
+function currentGlassesFacingHeadingDegrees(position?: PositionSample): number | null {
+  if (devGlassesHeadingOverrideAt > 0 && state.glassesHeadingDegrees != null) {
+    return state.glassesHeadingDegrees;
+  }
+
+  if (state.glassesHeadingDegrees != null && Date.now() - state.lastGlassesImuAt <= 3000) {
+    return state.glassesHeadingDegrees;
+  }
+
+  const anchor = currentHeadingAnchorDegrees(position);
+  if (anchor != null) {
+    state.glassesHeadingStatus = state.lastGlassesImuAt > 0 ? "G2 anchor fallback" : "G2 waiting for motion";
+    return anchor;
+  }
+
+  state.glassesHeadingStatus = "G2 needs compass/GPS";
+  return null;
+}
+
+function handleGlassesImu(sample: GlassImuSample): void {
+  const anchor = currentHeadingAnchorDegrees(state.position ?? undefined);
+  const now = Date.now();
+  const staleImu = now - state.lastGlassesImuAt > 15000;
+  devGlassesHeadingOverrideAt = 0;
+  state.lastGlassesImuSample = sample;
+
+  if (state.glassesImuBaseZ == null || state.glassesHeadingAnchorDegrees == null || staleImu) {
+    state.glassesImuBaseZ = sample.z;
+    state.glassesHeadingAnchorDegrees = anchor ?? state.glassesHeadingDegrees ?? 0;
+    state.glassesHeadingDegrees = state.glassesHeadingAnchorDegrees;
+    state.lastGlassesImuAt = sample.timestamp;
+    state.glassesHeadingStatus = anchor == null ? "G2 relative only" : "G2 facing";
+    updateStatsCard();
+    return;
+  }
+
+  if (anchor != null) {
+    state.glassesHeadingAnchorDegrees = smoothHeadingDegrees(state.glassesHeadingAnchorDegrees, anchor, 0.035);
+  }
+
+  const yawDelta = imuYawDeltaDegrees(sample.z, state.glassesImuBaseZ);
+  applyAccelerationLockAssist(sample, yawDelta);
+  if (Math.abs(yawDelta) > 160) {
+    state.glassesImuBaseZ = sample.z;
+    state.glassesHeadingAnchorDegrees = anchor ?? state.glassesHeadingDegrees ?? state.glassesHeadingAnchorDegrees;
+    state.glassesHeadingDegrees = state.glassesHeadingAnchorDegrees;
+    state.lastGlassesImuAt = sample.timestamp;
+    state.glassesHeadingStatus = "G2 re-anchored";
+  } else {
+    const heading = normalizeDegrees(state.glassesHeadingAnchorDegrees + yawDelta);
+    state.glassesHeadingDegrees = smoothHeadingDegrees(state.glassesHeadingDegrees, heading, 0.22);
+    state.lastGlassesImuAt = sample.timestamp;
+    state.glassesHeadingStatus = "G2 facing";
+  }
+
+  if (state.navigating && state.headingSource === "glasses") {
+    void updateGlass();
+  }
+  updateStatsCard();
+}
+
+function applyAccelerationLockAssist(sample: GlassImuSample, yawDelta: number): void {
+  const phoneHeading = currentPhoneHeadingDegrees();
+  if (phoneHeading == null || state.phoneAccelerationVector == null || state.glassesHeadingAnchorDegrees == null) {
+    return;
+  }
+
+  if (Date.now() - state.lastPhoneAccelerationAt > 700) {
+    return;
+  }
+
+  const lock = estimateAccelerationLockOffset(
+    state.phoneAccelerationVector,
+    { x: sample.x, y: sample.y }
+  );
+  if (!lock || lock.confidence < 0.22) {
+    return;
+  }
+
+  const targetGlassesHeading = normalizeDegrees(phoneHeading + lock.offsetDegrees);
+  const targetAnchor = normalizeDegrees(targetGlassesHeading - yawDelta);
+  const correction = Math.abs(normalizeSignedDegrees(targetAnchor - state.glassesHeadingAnchorDegrees));
+  if (correction > 55) {
+    state.accelerationLockConfidence = lock.confidence;
+    state.accelerationLockOffsetDegrees = lock.offsetDegrees;
+    state.glassesHeadingStatus = "Accel lock rejected";
+    return;
+  }
+
+  state.glassesHeadingAnchorDegrees = smoothHeadingDegrees(
+    state.glassesHeadingAnchorDegrees,
+    targetAnchor,
+    Math.min(0.12, 0.035 + lock.confidence * 0.07)
+  );
+  state.accelerationLockOffsetDegrees = lock.offsetDegrees;
+  state.accelerationLockConfidence = lock.confidence;
+  state.lastAccelerationLockAt = Date.now();
+  state.glassesHeadingStatus = "G2 accel lock";
+}
+
+function positionForGuidance(position: PositionSample): PositionSample {
+  if (state.headingSource === "travel") {
+    return position;
+  }
+
+  const heading = state.headingSource === "phone"
+    ? currentPhoneHeadingDegrees()
+    : currentGlassesFacingHeadingDegrees(position);
+  if (heading == null) {
+    return position;
+  }
+
+  return {
+    ...position,
+    headingDegrees: heading
+  };
+}
+
+function headingStatusSummary(): string {
+  if (state.headingSource === "travel") {
+    return "travel heading";
+  }
+
+  if (state.headingSource === "phone") {
+    const heading = currentPhoneHeadingDegrees();
+    return heading == null ? state.phoneHeadingStatus : `${state.phoneHeadingStatus} ${Math.round(heading)} deg${headingAccuracyLabel()}`;
+  }
+
+  const heading = currentGlassesFacingHeadingDegrees(state.position ?? undefined);
+  return heading == null ? state.glassesHeadingStatus : `${state.glassesHeadingStatus} ${Math.round(heading)} deg${headingAccuracyLabel()}`;
+}
+
+function headingAccuracyLabel(): string {
+  if (state.phoneHeadingAccuracyDegrees == null || state.headingSource === "travel") {
+    return "";
+  }
+
+  return ` / ${Math.round(state.phoneHeadingAccuracyDegrees)} deg acc`;
+}
+
+async function startPhoneHeadingTracking(requestPermission: boolean): Promise<void> {
+  if (state.headingSource === "travel") {
+    state.headingSource = "phone";
+  }
+  saveHeadingSource();
+
+  const orientationConstructor = window.DeviceOrientationEvent as
+    | (typeof DeviceOrientationEvent & { requestPermission?: () => Promise<PermissionState> })
+    | undefined;
+  const motionConstructor = window.DeviceMotionEvent as
+    | (typeof DeviceMotionEvent & { requestPermission?: () => Promise<PermissionState> })
+    | undefined;
+
+  if (requestPermission && orientationConstructor?.requestPermission) {
+    try {
+      const permission = await orientationConstructor.requestPermission();
+      if (permission !== "granted") {
+        state.phoneHeadingStatus = "Phone compass denied";
+        void updateGlass();
+        render();
+        return;
+      }
+    } catch {
+      state.phoneHeadingStatus = "Phone compass permission failed";
+      void updateGlass();
+      render();
+      return;
+    }
+  } else if (!requestPermission && orientationConstructor?.requestPermission) {
+    state.phoneHeadingStatus = "Tap Enable phone compass";
+    render();
+    return;
+  }
+
+  if (requestPermission && motionConstructor?.requestPermission) {
+    try {
+      await motionConstructor.requestPermission();
+    } catch {
+      state.phoneHeadingStatus = "Phone motion permission failed";
+    }
+  }
+
+  if (!("DeviceOrientationEvent" in window)) {
+    state.phoneHeadingStatus = "Phone compass unavailable";
+    void updateGlass();
+    render();
+    return;
+  }
+
+  if (!phoneHeadingListenerBound) {
+    window.addEventListener("deviceorientation", handleDeviceOrientation, true);
+    window.addEventListener("deviceorientationabsolute", handleDeviceOrientation, true);
+    phoneHeadingListenerBound = true;
+  }
+  if (!phoneMotionListenerBound && "DeviceMotionEvent" in window) {
+    window.addEventListener("devicemotion", handleDeviceMotion, true);
+    phoneMotionListenerBound = true;
+  }
+
+  state.phoneHeadingStatus = "Phone compass listening";
+  void updateGlass();
+  render();
+}
+
+function handleDeviceOrientation(event: DeviceOrientationEvent): void {
+  const headingSample = headingFromDeviceOrientation(event);
+  if (!headingSample) {
+    state.phoneHeadingStatus = "Phone compass needs absolute heading";
+    state.phoneHeadingAccuracyDegrees = null;
+    updateStatsCard();
+    return;
+  }
+
+  state.phoneHeadingDegrees = smoothHeadingDegrees(state.phoneHeadingDegrees, headingSample.heading, 0.24);
+  state.phoneHeadingAccuracyDegrees = headingSample.accuracy;
+  state.lastPhoneHeadingAt = Date.now();
+  state.phoneHeadingStatus = headingSample.source === "webkit" ? "Phone compass" : "Absolute phone heading";
+
+  if (state.navigating && (state.headingSource === "phone" || state.headingSource === "glasses")) {
+    void updateGlass();
+  }
+  updateStatsCard();
+}
+
+function handleDeviceMotion(event: DeviceMotionEvent): void {
+  const acceleration = event.acceleration;
+  const x = acceleration?.x;
+  const y = acceleration?.y;
+  if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) {
+    return;
+  }
+
+  state.phoneAccelerationVector = { x, y };
+  state.lastPhoneAccelerationAt = Date.now();
+  updateStatsCard();
+}
+
+function headingFromDeviceOrientation(event: DeviceOrientationEvent): { heading: number; accuracy: number | null; source: "webkit" | "absolute" } | null {
+  const heading = headingFromOrientationEvent(event as DeviceOrientationEvent & {
+    webkitCompassHeading?: number;
+    webkitCompassAccuracy?: number;
+  });
+  if (heading == null) {
+    const compassEvent = event as DeviceOrientationEvent & { webkitCompassAccuracy?: number };
+    if (typeof compassEvent.webkitCompassAccuracy === "number" && compassEvent.webkitCompassAccuracy > 45) {
+      state.phoneHeadingStatus = "Phone compass low accuracy";
+    }
+  }
+
+  return heading;
 }
 
 function markBlitzerBridgeActive(input?: BlitzerBridgeHeartbeatInput): void {
@@ -2018,7 +2494,7 @@ function evaluateAutoReroute(): void {
 
   const snapshot = makeGuidanceSnapshot(
     state.route,
-    state.position,
+    positionForGuidance(state.position),
     state.mode,
     state.nextStepIndex,
     state.unitSystem
@@ -2327,7 +2803,7 @@ function currentSnapshot(): GuidanceSnapshot {
   }
 
   const snapshot = withBlitzerAlert(withDisplayPreferences(
-    makeGuidanceSnapshot(state.route, state.position, state.mode, state.nextStepIndex, state.unitSystem)
+    makeGuidanceSnapshot(state.route, positionForGuidance(state.position), state.mode, state.nextStepIndex, state.unitSystem)
   ));
   state.nextStepIndex = snapshot.nextStepIndex;
   return state.guidanceView === "map" ? mapGlassesSnapshot(snapshot) : snapshot;
@@ -2922,6 +3398,24 @@ function glassesSettings(): Array<{ label: string; value: () => string; toggle: 
       }
     },
     {
+      label: "Heading EXP",
+      value: () => {
+        if (state.headingSource === "glasses") {
+          return "G2 facing";
+        }
+        return state.headingSource === "phone" ? "Phone compass" : "Travel course";
+      },
+      toggle: () => {
+        state.headingSource = nextHeadingSource();
+        saveHeadingSource();
+        if (state.headingSource === "phone" || state.headingSource === "glasses") {
+          void startPhoneHeadingTracking(false);
+        } else {
+          state.phoneHeadingStatus = "Travel heading";
+        }
+      }
+    },
+    {
       label: "Side roads",
       value: () => state.showSideRoads ? "Shown at complex turns" : "Hidden",
       toggle: () => {
@@ -2962,6 +3456,16 @@ function glassesSettings(): Array<{ label: string; value: () => string; toggle: 
       }
     }
   ];
+}
+
+function nextHeadingSource(): AppState["headingSource"] {
+  if (state.headingSource === "travel") {
+    return "phone";
+  }
+  if (state.headingSource === "phone") {
+    return "glasses";
+  }
+  return "travel";
 }
 
 function glassesFavoriteOptions(): PlaceResult[] {

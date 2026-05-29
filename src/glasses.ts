@@ -3,6 +3,7 @@ import {
   ImageContainerProperty,
   ImageRawDataUpdate,
   ImageRawDataUpdateResult,
+  ImuReportPace,
   OsEventTypeList,
   RebuildPageContainer,
   StartUpPageCreateResult,
@@ -14,6 +15,8 @@ import blitzerLogoUrl from "./assets/blitzer-logo.png";
 
 type Bridge = Awaited<ReturnType<typeof waitForEvenAppBridge>>;
 type InputHandler = (action: "press" | "double" | "up" | "down" | "long") => void;
+export type GlassImuSample = { x: number; y: number; z: number; timestamp: number };
+type ImuHandler = (sample: GlassImuSample) => void;
 
 const MAIN_CONTAINER_ID = 1;
 const MAIN_CONTAINER_NAME = "main";
@@ -79,12 +82,22 @@ export class GlassDisplay {
   private ready = false;
   private lastContent = "";
 
-  async connect(onInput: InputHandler): Promise<boolean> {
+  async connect(onInput: InputHandler, onImu?: ImuHandler): Promise<boolean> {
     try {
       this.bridge = await withTimeout(waitForEvenAppBridge(), 2500);
       this.bridge.onEvenHubEvent((event) => {
         const eventType = event.textEvent?.eventType ?? event.listEvent?.eventType ?? event.sysEvent?.eventType;
         const normalizedEventType = OsEventTypeList.fromJson(eventType) ?? eventType;
+        const imuSample = imuSampleFromEvent(event);
+        if (imuSample) {
+          onImu?.(imuSample);
+          return;
+        }
+
+        if (normalizedEventType === OsEventTypeList.IMU_DATA_REPORT) {
+          return;
+        }
+
         const rawEventType = eventTypeText(event, normalizedEventType);
 
         if (/LONG|HOLD/.test(rawEventType)) {
@@ -111,6 +124,7 @@ export class GlassDisplay {
 
       this.ready = true;
       this.lastContent = "";
+      void this.enableImuReporting();
       return true;
     } catch (error) {
       console.info("Even bridge unavailable; using phone preview only.", error);
@@ -215,6 +229,19 @@ export class GlassDisplay {
     }));
   }
 
+  private async enableImuReporting(): Promise<void> {
+    if (!this.bridge) {
+      return;
+    }
+
+    try {
+      const enabled = await this.bridge.imuControl(true, ImuReportPace.P500);
+      console.info("[GlassDisplay] imuControl", enabled);
+    } catch (error) {
+      console.info("[GlassDisplay] IMU reporting unavailable", error);
+    }
+  }
+
 }
 
 export function renderGlassText(snapshot: GuidanceSnapshot): string {
@@ -292,6 +319,36 @@ function eventTypeText(event: unknown, normalizedEventType: unknown): string {
     typedEvent.sysEvent?.eventType,
     normalizedEventType
   ].map((value) => String(value ?? "")).join(" ").toUpperCase();
+}
+
+function imuSampleFromEvent(event: unknown): GlassImuSample | null {
+  const typedEvent = event as {
+    sysEvent?: {
+      imuData?: {
+        x?: unknown;
+        y?: unknown;
+        z?: unknown;
+      };
+    };
+  };
+  const imuData = typedEvent.sysEvent?.imuData;
+  if (!imuData) {
+    return null;
+  }
+
+  const x = Number(imuData.x);
+  const y = Number(imuData.y);
+  const z = Number(imuData.z);
+  if (![x, y, z].every(Number.isFinite)) {
+    return null;
+  }
+
+  return {
+    x,
+    y,
+    z,
+    timestamp: Date.now()
+  };
 }
 
 function renderGlassImageTiles(

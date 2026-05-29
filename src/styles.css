@@ -211,7 +211,8 @@ h1 {
 
 .mode,
 .view-mode,
-.unit-mode {
+.unit-mode,
+.heading-mode {
   border: 0;
   border-radius: 6px;
   padding: 10px 12px;
@@ -222,14 +223,16 @@ h1 {
 }
 
 .view-mode,
-.unit-mode {
+.unit-mode,
+.heading-mode {
   border: 1px solid rgba(243, 244, 239, 0.14);
   background: rgba(243, 244, 239, 0.05);
 }
 
 .mode.active,
 .view-mode.active,
-.unit-mode.active {
+.unit-mode.active,
+.heading-mode.active {
   color: #12120f;
   background: var(--line);
 }
@@ -644,8 +647,35 @@ h1 {
 
 .segmented-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
   gap: 8px;
+}
+
+.settings-action {
+  min-height: 38px;
+  border: 1px solid rgba(124, 255, 158, 0.26);
+  border-radius: 8px;
+  background: rgba(124, 255, 158, 0.1);
+  color: var(--text);
+  font-weight: 900;
+}
+
+.setting-note {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.experimental-chip {
+  display: inline-block;
+  margin-left: 6px;
+  border: 1px solid rgba(248, 223, 140, 0.58);
+  border-radius: 4px;
+  padding: 2px 5px;
+  color: #f8df8c;
+  font-size: 0.68em;
+  font-style: normal;
+  line-height: 1;
 }
 
 .setting-toggle {

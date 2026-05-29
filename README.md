@@ -24,6 +24,9 @@ guidance tuned for motorcycle and spirited car use.
   the glasses.
 - Shows current speed during active guidance when the Speed display setting is
   enabled.
+- `main-experimental` includes experimental HUD heading modes: Travel course,
+  phone compass, and G2-facing heading with bounded relative IMU yaw plus
+  acceleration-lock assistance when matching phone/G2 motion is available.
 - Can show Blitzer.de Pro-style speed camera alerts when an external bridge
   feeds alert distance and speed-limit data into Apexline. The app cannot read
   another app's iOS notifications directly from the EvenHub WebView.
@@ -71,6 +74,9 @@ for simulator testing, for example `?devRoute=1&view=map&autoDrive=1`.
 Blitzer alert testing can use the dev-only Simulate Blitzer alert button,
 `?blitzer=1&blitzerDistance=600&blitzerSpeed=80`, or the dev console helper
 `window.__apexlineBlitzerAlert("Speed camera in 600 m 80 km/h")`.
+Heading test flags include `?heading=phone&phoneHeading=90`,
+`?heading=glasses&glassesHeading=90`, and
+`?heading=glasses&phoneHeading=90&phoneAccelX=0&phoneAccelY=3&glassesImuBase=0&glassesImuZ=45`.
 Use `?devSplashMs=12000` to hold the glasses cold-boot splash longer while
 checking it in the simulator.
 Capture the glasses display without raising the simulator windows with:
@@ -101,6 +107,12 @@ a real companion/app integration path.
 `main-experimental` is the hardware-test branch. It starts from `main`, then
 adds current experimental branches with visible experimental labeling so WIP
 features can be tested together without changing the stable `main` app.
+Current experimental features are marked in the phone settings and glasses
+settings where applicable, especially Blitzer.de PRO bridge and G2-facing HUD
+heading.
+
+See `docs/g2-heading-hardware-checklist.md` before treating G2-facing heading
+as hardware-verified.
 
 ## Build and pack
 
