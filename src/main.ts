@@ -62,6 +62,11 @@ type AppState = {
 };
 
 type GlassAction = "press" | "double" | "up" | "down" | "long";
+type GlassPickerTarget = "origin" | "destination";
+type GlassPickerOption = PlaceResult & {
+  badge?: string;
+  disabled?: boolean;
+};
 
 const FAVORITES_STORAGE_KEY = "apexline-favorites";
 const UNIT_SYSTEM_STORAGE_KEY = "apexline-unit-system";
@@ -1050,7 +1055,7 @@ function toggleFavorite(place: PlaceResult): void {
   if (isFavorite(place)) {
     state.favorites = state.favorites.filter((favorite) => !samePlace(favorite, place));
   } else {
-    state.favorites = [normalizeFavorite(place), ...state.favorites].slice(0, 20);
+    state.favorites = dedupeFavorites([normalizeFavorite(place), ...state.favorites]).slice(0, 20);
   }
 
   normalizeFavoriteIndexes();
@@ -1108,19 +1113,30 @@ function loadFavorites(): PlaceResult[] {
       return [];
     }
 
-    return parsed.filter((favorite) =>
+    const validFavorites = parsed.filter((favorite) =>
       typeof favorite.id === "string" &&
       typeof favorite.label === "string" &&
       typeof favorite.coordinate?.lat === "number" &&
       typeof favorite.coordinate?.lon === "number"
     );
+    return dedupeFavorites(validFavorites).slice(0, 20);
   } catch {
     return [];
   }
 }
 
 function saveFavorites(): void {
+  state.favorites = dedupeFavorites(state.favorites).slice(0, 20);
   window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(state.favorites));
+}
+
+function dedupeFavorites(favorites: PlaceResult[]): PlaceResult[] {
+  return favorites.reduce<PlaceResult[]>((uniqueFavorites, favorite) => {
+    if (!uniqueFavorites.some((existingFavorite) => samePlace(existingFavorite, favorite))) {
+      uniqueFavorites.push(normalizeFavorite(favorite));
+    }
+    return uniqueFavorites;
+  }, []);
 }
 
 function loadUnitSystem(): UnitSystem {
@@ -1754,7 +1770,7 @@ function routeReadyGlassesSnapshot(): GuidanceSnapshot {
     title: "Route Ready",
     primary: routeStatus,
     secondary: `${shortGlassLabel(origin)} -> ${shortGlassLabel(destination)}`,
-    tertiary: state.route ? "Swipe down to start" : "Building automatically",
+    tertiary: state.route ? "Press Start" : "Building automatically",
     hint: "Double back",
     arrow: "--",
     nextStepIndex: 0,
@@ -1764,16 +1780,16 @@ function routeReadyGlassesSnapshot(): GuidanceSnapshot {
 }
 
 function homeGlassesSnapshot(): GuidanceSnapshot {
-  const hasFavorites = glassesFavoriteOptions().length > 0;
+  const hasFavorites = glassesPickerOptions("destination").length > 0;
   const hasPhoneRoute = Boolean(state.position && state.selectedPlace);
   const gpsStatus = hasPhoneRoute ? "Route ready" : state.position ? "GPS ready" : "No GPS connection";
   return {
     active: false,
     title: "Apexline",
     primary: gpsStatus,
-    secondary: hasPhoneRoute ? "Swipe down starts" : hasFavorites ? "Click to choose favorites" : "Save favorites on phone",
-    tertiary: state.position ? "Phone route available" : "Pick start and finish",
-    hint: state.devToolsEnabled ? "Dev test favorites ready" : "Ride ready",
+    secondary: hasPhoneRoute ? "Start from phone" : hasFavorites ? "Long press favorites" : "Save favorites on phone",
+    tertiary: state.position ? "GPS start available" : "Current location unavailable",
+    hint: hasFavorites || state.position ? "Long select route" : "",
     arrow: "--",
     nextStepIndex: 0,
     distanceToStepMeters: 0,
@@ -1781,25 +1797,34 @@ function homeGlassesSnapshot(): GuidanceSnapshot {
   };
 }
 
-function favoriteGlassesSnapshot(target: "origin" | "destination"): GuidanceSnapshot {
-  const favorite = selectedGlassesFavorite(target);
-  if (!favorite) {
-    return makeIdleSnapshot("No favorites saved");
+function favoriteGlassesSnapshot(target: GlassPickerTarget): GuidanceSnapshot {
+  const option = selectedGlassesFavorite(target);
+  const options = glassesPickerOptions(target);
+  if (!option) {
+    return {
+      ...makeIdleSnapshot(target === "origin" ? "No start options" : "No destinations"),
+      title: target === "origin" ? "Choose Start" : "Choose Finish",
+      secondary: target === "origin" ? "Use GPS or save favorites" : "Save favorites on phone",
+      tertiary: "Double back",
+      hint: "",
+      pickerItems: visibleGlassPickerItems(target)
+    };
   }
 
   const index = favoriteIndex(target) + 1;
-  const count = glassesFavoriteOptions().length;
+  const count = options.length;
   return {
     active: false,
     title: target === "origin" ? "Choose Start" : "Choose Finish",
-    primary: favorite.label,
+    primary: option.label,
     secondary: `${index}/${count}`,
-    tertiary: `Click selects ${target === "origin" ? "start" : "finish"}`,
-    hint: "Swipe changes | Double back",
+    tertiary: target === "origin" ? "Press to set start" : "Press to set finish",
+    hint: "Swipe scroll | Double back",
     arrow: "--",
     nextStepIndex: 0,
     distanceToStepMeters: 0,
-    offRoute: false
+    offRoute: false,
+    pickerItems: visibleGlassPickerItems(target)
   };
 }
 
@@ -1835,8 +1860,8 @@ function mapGlassesSnapshot(snapshot: GuidanceSnapshot): GuidanceSnapshot {
 }
 
 function handleGlassInput(action: GlassAction): void {
-  if (action === "long") {
-    state.glassesScreen = state.glassesScreen === "settings" ? "home" : "settings";
+  if (action === "long" && !state.navigating) {
+    state.glassesScreen = state.glassesScreen === "settings" ? "home" : "favoriteOrigin";
     void updateGlass();
     render();
     return;
@@ -1851,6 +1876,13 @@ function handleGlassInput(action: GlassAction): void {
     if (action === "double") {
       state.glassesScreen = "home";
       cancelNavigation("Navigation stopped.");
+      return;
+    }
+
+    if (action === "long") {
+      state.glassesScreen = "settings";
+      void updateGlass();
+      render();
       return;
     }
 
@@ -1873,20 +1905,7 @@ function handleGlassInput(action: GlassAction): void {
     return;
   }
 
-  if (action === "double") {
-    state.glassesScreen = "settings";
-    void updateGlass();
-    render();
-    return;
-  }
-
-  if (action === "press" && glassesFavoriteOptions().length > 0) {
-    state.glassesScreen = "favoriteOrigin";
-    void updateGlass();
-    return;
-  }
-
-  if (action === "down" && state.position && state.selectedPlace) {
+  if (action === "press" && state.position && state.selectedPlace) {
     startGlassesNavigation();
     return;
   }
@@ -1895,10 +1914,11 @@ function handleGlassInput(action: GlassAction): void {
   render();
 }
 
-function handleFavoritePickerInput(target: "origin" | "destination", action: "press" | "double" | "up" | "down"): void {
+function handleFavoritePickerInput(target: GlassPickerTarget, action: GlassAction): void {
   if (action === "double") {
     state.glassesScreen = target === "origin" ? "home" : "favoriteOrigin";
     void updateGlass();
+    render();
     return;
   }
 
@@ -1929,11 +1949,12 @@ function handleFavoritePickerInput(target: "origin" | "destination", action: "pr
   selectGlassesDestination(favorite);
 }
 
-function handleRouteReadyInput(action: "press" | "double" | "up" | "down"): void {
+function handleRouteReadyInput(action: GlassAction): void {
   if (action === "double") {
-    state.glassesScreen = "home";
+    state.glassesScreen = "favoriteDestination";
     state.startWhenRouteReady = false;
     void updateGlass();
+    render();
     return;
   }
 
@@ -1942,12 +1963,9 @@ function handleRouteReadyInput(action: "press" | "double" | "up" | "down"): void
     return;
   }
 
-  if (action === "down") {
-    startGlassesNavigation();
-  }
 }
 
-function handleGlassesSettingsInput(action: "press" | "double" | "up" | "down"): void {
+function handleGlassesSettingsInput(action: GlassAction): void {
   if (action === "double") {
     state.glassesScreen = "home";
     void updateGlass();
@@ -1969,31 +1987,31 @@ function handleGlassesSettingsInput(action: "press" | "double" | "up" | "down"):
   }
 }
 
-function selectedGlassesFavorite(target: "origin" | "destination" = "destination"): PlaceResult | null {
-  const favorites = glassesFavoriteOptions();
-  if (favorites.length === 0) {
+function selectedGlassesFavorite(target: GlassPickerTarget = "destination"): GlassPickerOption | null {
+  const options = glassesPickerOptions(target);
+  if (options.length === 0) {
     return null;
   }
 
-  const index = Math.min(Math.max(favoriteIndex(target), 0), favorites.length - 1);
-  return favorites[index] ?? null;
+  const index = Math.min(Math.max(favoriteIndex(target), 0), options.length - 1);
+  return options[index] ?? null;
 }
 
-function cycleGlassesFavorite(target: "origin" | "destination", delta: number): void {
-  const favorites = glassesFavoriteOptions();
-  if (favorites.length === 0) {
+function cycleGlassesFavorite(target: GlassPickerTarget, delta: number): void {
+  const options = glassesPickerOptions(target);
+  if (options.length === 0) {
     setFavoriteIndex(target, 0);
     return;
   }
 
-  setFavoriteIndex(target, (favoriteIndex(target) + delta + favorites.length) % favorites.length);
+  setFavoriteIndex(target, (favoriteIndex(target) + delta + options.length) % options.length);
 }
 
-function favoriteIndex(target: "origin" | "destination"): number {
+function favoriteIndex(target: GlassPickerTarget): number {
   return target === "origin" ? state.glassesStartFavoriteIndex : state.glassesDestinationFavoriteIndex;
 }
 
-function setFavoriteIndex(target: "origin" | "destination", index: number): void {
+function setFavoriteIndex(target: GlassPickerTarget, index: number): void {
   if (target === "origin") {
     state.glassesStartFavoriteIndex = index;
   } else {
@@ -2003,27 +2021,20 @@ function setFavoriteIndex(target: "origin" | "destination", index: number): void
 }
 
 function primeDestinationFavoriteIndex(origin: PlaceResult): void {
-  const favorites = glassesFavoriteOptions();
-  if (favorites.length < 2) {
+  const options = glassesPickerOptions("destination", origin);
+  if (options.length === 0) {
+    state.glassesDestinationFavoriteIndex = 0;
     return;
   }
 
-  const selectedDestination = favorites[state.glassesDestinationFavoriteIndex];
-  if (selectedDestination && !samePlace(selectedDestination, origin)) {
-    return;
-  }
-
-  const nextIndex = favorites.findIndex((favorite) => !samePlace(favorite, origin));
-  if (nextIndex >= 0) {
-    state.glassesDestinationFavoriteIndex = nextIndex;
-    state.glassesFavoriteIndex = nextIndex;
-  }
+  state.glassesDestinationFavoriteIndex = Math.min(state.glassesDestinationFavoriteIndex, options.length - 1);
+  state.glassesFavoriteIndex = state.glassesDestinationFavoriteIndex;
 }
 
 function selectGlassesDestination(destination: PlaceResult): void {
   const origin = state.glassesSelectedOrigin;
   if (origin) {
-    if (state.devToolsEnabled) {
+    if (state.devToolsEnabled && origin.id !== "glass-current-location") {
       applySimulatedOrigin(origin, destination);
     } else {
       applyManualOrigin(origin);
@@ -2112,13 +2123,69 @@ function glassesSettings(): Array<{ label: string; value: () => string; toggle: 
 
 function glassesFavoriteOptions(): PlaceResult[] {
   if (!state.devToolsEnabled) {
-    return state.favorites;
+    return dedupeFavorites(state.favorites);
   }
 
-  const devFavorites = [DEV_TEST_ORIGIN, DEV_TEST_DESTINATION].filter(
-    (devFavorite) => !state.favorites.some((favorite) => samePlace(favorite, devFavorite))
+  return dedupeFavorites([DEV_TEST_ORIGIN, DEV_TEST_DESTINATION, ...state.favorites]);
+}
+
+function glassesPickerOptions(target: GlassPickerTarget, selectedOrigin = state.glassesSelectedOrigin): GlassPickerOption[] {
+  const options: GlassPickerOption[] = target === "origin"
+    ? [currentLocationGlassOption(), ...glassesFavoriteOptions()].filter(isGlassPickerOption)
+    : glassesFavoriteOptions();
+
+  const filteredOptions = target === "destination" && selectedOrigin
+    ? options.filter((option) => !samePlace(option, selectedOrigin))
+    : options;
+
+  return dedupePickerOptions(filteredOptions);
+}
+
+function currentLocationGlassOption(): GlassPickerOption | null {
+  if (!state.position) {
+    return null;
+  }
+
+  return {
+    id: "glass-current-location",
+    label: state.locationSource === "simulated" ? "Simulated GPS Start" : "Current Location",
+    coordinate: state.position.coordinate,
+    badge: state.locationSource === "simulated" ? "SIM" : "GPS"
+  };
+}
+
+function isGlassPickerOption(option: GlassPickerOption | null): option is GlassPickerOption {
+  return Boolean(option);
+}
+
+function dedupePickerOptions(options: GlassPickerOption[]): GlassPickerOption[] {
+  return options.reduce<GlassPickerOption[]>((uniqueOptions, option) => {
+    if (!uniqueOptions.some((existingOption) => samePlace(existingOption, option))) {
+      uniqueOptions.push(option);
+    }
+    return uniqueOptions;
+  }, []);
+}
+
+function visibleGlassPickerItems(target: GlassPickerTarget): GuidanceSnapshot["pickerItems"] {
+  const options = glassesPickerOptions(target);
+  if (options.length === 0) {
+    return [{ label: "No saved places", selected: true, disabled: true }];
+  }
+
+  const selectedIndex = Math.min(Math.max(favoriteIndex(target), 0), options.length - 1);
+  const visibleCount = 4;
+  const firstIndex = Math.min(
+    Math.max(selectedIndex - 1, 0),
+    Math.max(options.length - visibleCount, 0)
   );
-  return [...devFavorites, ...state.favorites];
+
+  return options.slice(firstIndex, firstIndex + visibleCount).map((option, offset) => ({
+    label: option.label,
+    badge: option.badge,
+    selected: firstIndex + offset === selectedIndex,
+    disabled: option.disabled
+  }));
 }
 
 function shortGlassLabel(label: string): string {

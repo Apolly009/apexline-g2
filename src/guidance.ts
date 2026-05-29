@@ -34,6 +34,7 @@ export type GuidanceSnapshot = {
   showSideRoads?: boolean;
   showSpeed?: boolean;
   speedLabel?: string;
+  pickerItems?: GuidancePickerItem[];
 };
 
 export type PositionSample = {
@@ -50,6 +51,13 @@ export type RoutePreviewPoint = {
 export type SideRoadPreviewBranch = {
   points: RoutePreviewPoint[];
   roadClass: IntersectionBranch["roadClass"];
+};
+
+export type GuidancePickerItem = {
+  label: string;
+  badge?: string;
+  selected?: boolean;
+  disabled?: boolean;
 };
 
 export function makeIdleSnapshot(status: string): GuidanceSnapshot {

@@ -44,28 +44,20 @@ export class GlassDisplay {
       this.bridge.onEvenHubEvent((event) => {
         const eventType = event.textEvent?.eventType ?? event.listEvent?.eventType ?? event.sysEvent?.eventType;
         const normalizedEventType = OsEventTypeList.fromJson(eventType) ?? eventType;
-        const listSelectIndex = event.listEvent?.currentSelectItemIndex;
-        const rawEventType = [
-          (event as { textEvent?: { eventType?: unknown } }).textEvent?.eventType,
-          (event as { listEvent?: { eventType?: unknown } }).listEvent?.eventType,
-          (event as { sysEvent?: { eventType?: unknown } }).sysEvent?.eventType
-        ].map((value) => String(value ?? "")).join(" ");
+        const rawEventType = eventTypeText(event, normalizedEventType);
+        const inferredScroll = this.inferScrollFromListIndex(event.listEvent?.currentSelectItemIndex);
 
-        if (/LONG|HOLD/.test(rawEventType.toUpperCase())) {
+        if (/LONG|HOLD/.test(rawEventType)) {
           onInput("long");
-        } else if (normalizedEventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+        } else if (/DOUBLE/.test(rawEventType) || normalizedEventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
           onInput("double");
-        } else if (normalizedEventType === OsEventTypeList.SCROLL_TOP_EVENT) {
+        } else if (/SCROLL_TOP|SCROLL_UP|SWIPE_UP|\bUP\b/.test(rawEventType) || normalizedEventType === OsEventTypeList.SCROLL_TOP_EVENT) {
           onInput("up");
-        } else if (normalizedEventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
+        } else if (/SCROLL_BOTTOM|SCROLL_DOWN|SWIPE_DOWN|\bDOWN\b/.test(rawEventType) || normalizedEventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
           onInput("down");
+        } else if (inferredScroll) {
+          onInput(inferredScroll);
         } else if (normalizedEventType === OsEventTypeList.CLICK_EVENT || eventType == null) {
-          const inferredScroll = this.inferScrollFromListIndex(listSelectIndex);
-          if (inferredScroll) {
-            onInput(inferredScroll);
-            return;
-          }
-
           onInput("press");
         }
       });
@@ -111,7 +103,6 @@ export class GlassDisplay {
     }
 
     const rows = listRowsForGlass();
-    this.lastListSelectIndex = 0;
     const mainList = new ListContainerProperty({
       xPosition: 0,
       yPosition: 0,
@@ -255,13 +246,30 @@ function glassRenderKey(snapshot: GuidanceSnapshot, content: string): string {
     snapshot.modifier ?? "",
     snapshot.turnAngleDegrees ?? "",
     snapshot.showSideRoads ? "side-roads" : "clean",
+    snapshot.pickerItems?.map((item) => `${item.selected ? ">" : ""}${item.badge ?? ""}:${item.label}`).join("|") ?? "",
     preview,
     sideRoads
   ].join("\n");
 }
 
 function listRowsForGlass(): string[] {
-  return [" ", " ", " "];
+  return [" ", " ", " ", " ", " "];
+}
+
+function eventTypeText(event: unknown, normalizedEventType: unknown): string {
+  const typedEvent = event as {
+    textEvent?: { eventType?: unknown };
+    listEvent?: { eventType?: unknown; currentSelectItemName?: unknown };
+    sysEvent?: { eventType?: unknown };
+  };
+
+  return [
+    typedEvent.textEvent?.eventType,
+    typedEvent.listEvent?.eventType,
+    typedEvent.listEvent?.currentSelectItemName,
+    typedEvent.sysEvent?.eventType,
+    normalizedEventType
+  ].map((value) => String(value ?? "")).join(" ").toUpperCase();
 }
 
 function renderGlassImageTiles(
@@ -383,7 +391,7 @@ function drawIdleImage(
   const chromeHint = title === "Choose Start" || title === "Choose Finish" ? "" : snapshot?.hint ?? "";
   drawMenuChrome(context, title, chromeHint);
   if (title === "Choose Start" || title === "Choose Finish") {
-    drawFavoriteMenu(context, title, primary, secondary, tertiary, snapshot?.hint ?? "");
+    drawFavoriteMenu(context, title, primary, secondary, tertiary, snapshot?.hint ?? "", snapshot?.pickerItems ?? []);
   } else if (title === "Route Ready") {
     drawRouteReadyMenu(context, primary, secondary, tertiary);
   } else if (title === "Settings") {
@@ -439,7 +447,8 @@ function drawFavoriteMenu(
   primary: string,
   secondary: string,
   tertiary: string,
-  hint: string
+  hint: string,
+  items: NonNullable<GuidanceSnapshot["pickerItems"]>
 ): void {
   const isStart = title === "Choose Start";
   drawStepRail(context, isStart ? 0 : 1);
@@ -449,13 +458,60 @@ function drawFavoriteMenu(
   context.textAlign = "right";
   context.fillText(secondary, 544, 86);
 
-  context.fillStyle = HUD_TEXT;
-  context.font = "bold 24px system-ui, sans-serif";
-  context.textAlign = "left";
-  wrapMenuText(context, primary, 104, 122, 404, 28, 2);
+  if (items.length === 0) {
+    context.fillStyle = HUD_TEXT;
+    context.font = "bold 24px system-ui, sans-serif";
+    context.textAlign = "left";
+    wrapMenuText(context, primary, 104, 122, 404, 28, 2);
+  } else {
+    drawFavoriteList(context, items);
+  }
 
-  drawMenuActionRow(context, 104, 218, tertiary, "CLICK");
-  drawTinyHint(context, hint, 104, 274);
+  drawTinyHint(context, hint || tertiary, 104, 274);
+}
+
+function drawFavoriteList(
+  context: CanvasRenderingContext2D,
+  items: NonNullable<GuidanceSnapshot["pickerItems"]>
+): void {
+  const rowX = 104;
+  const rowWidth = 408;
+  const rowHeight = 36;
+  const rowGap = 8;
+  const top = 92;
+
+  items.forEach((item, index) => {
+    const y = top + index * (rowHeight + rowGap);
+    const selected = Boolean(item.selected);
+    context.fillStyle = selected ? "rgba(124, 255, 158, 0.16)" : "rgba(124, 255, 158, 0.04)";
+    context.strokeStyle = selected ? "rgba(124, 255, 158, 0.86)" : "rgba(130, 170, 141, 0.2)";
+    context.lineWidth = selected ? 2.5 : 1.5;
+    roundRect(context, rowX, y, rowWidth, rowHeight, 8);
+    context.fill();
+    context.stroke();
+
+    if (selected) {
+      context.fillStyle = HUD_PRIMARY;
+      context.beginPath();
+      context.moveTo(rowX + 12, y + rowHeight / 2);
+      context.lineTo(rowX + 22, y + rowHeight / 2 - 8);
+      context.lineTo(rowX + 22, y + rowHeight / 2 + 8);
+      context.closePath();
+      context.fill();
+    }
+
+    context.fillStyle = item.disabled ? HUD_MUTED : selected ? HUD_TEXT : "rgba(221, 255, 227, 0.78)";
+    context.font = selected ? "bold 16px system-ui, sans-serif" : "bold 14px system-ui, sans-serif";
+    context.textAlign = "left";
+    context.fillText(trimImageLine(item.label, item.badge ? 28 : 34), rowX + 34, y + 24);
+
+    if (item.badge) {
+      context.fillStyle = selected ? HUD_PRIMARY : HUD_MUTED;
+      context.font = "bold 11px system-ui, sans-serif";
+      context.textAlign = "right";
+      context.fillText(item.badge, rowX + rowWidth - 16, y + 23);
+    }
+  });
 }
 
 function drawRouteReadyMenu(
@@ -479,7 +535,7 @@ function drawRouteReadyMenu(
   context.font = "bold 21px system-ui, sans-serif";
   context.fillText(trimImageLine(parts[1] ?? "Destination", 27), 104, 210);
 
-  drawMenuActionRow(context, 104, 238, tertiary, "SWIPE");
+  drawMenuActionRow(context, 104, 238, tertiary, "PRESS");
 }
 
 function drawSettingsMenu(
