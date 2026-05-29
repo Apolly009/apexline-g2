@@ -466,6 +466,11 @@ function drawIdleImage(
     return;
   }
 
+  if (title === "Blitzer") {
+    drawBlitzerMenu(context, snapshot);
+    return;
+  }
+
   const chromeHint = title === "Choose Start" || title === "Choose Finish" ? "" : snapshot?.hint ?? "";
   drawMenuChrome(context, title, chromeHint);
   if (title === "Choose Start" || title === "Choose Finish") {
@@ -474,8 +479,6 @@ function drawIdleImage(
     drawModeMenu(context, snapshot?.pickerItems ?? [], snapshot?.hint ?? "", secondary, snapshot?.homeVariant, snapshot?.transitionFrame ?? 0);
   } else if (title === "Route Ready") {
     drawRouteReadyMenu(context, primary, secondary, tertiary);
-  } else if (title === "Blitzer") {
-    drawBlitzerMenu(context, snapshot);
   } else if (title === "Settings") {
     drawSettingsMenu(context, primary, secondary, snapshot?.hint ?? "");
   } else {
@@ -513,31 +516,33 @@ function drawModeMenu(
 
 function drawStartupSplash(context: CanvasRenderingContext2D, frame: number): void {
   const phase = frame % 10;
-  const progress = Math.min(1, frame / 40);
+  const progress = Math.min(1, frame / 32);
   const marker = splashRoutePoint(progress);
   const markerNext = splashRoutePoint(Math.min(1, progress + 0.025));
   context.save();
-  context.strokeStyle = "rgba(124, 255, 158, 0.18)";
-  context.lineWidth = 2;
-  context.setLineDash([14, 12]);
-  context.lineDashOffset = -phase * 5;
-  context.beginPath();
-  drawSplashRoutePath(context, -12, 8);
-  context.stroke();
-
+  context.textAlign = "center";
   context.setLineDash([]);
-  context.strokeStyle = "rgba(124, 255, 158, 0.52)";
-  context.lineWidth = 9;
+  context.strokeStyle = "rgba(124, 255, 158, 0.28)";
+  context.lineWidth = 10;
   context.lineCap = "round";
   context.beginPath();
   drawSplashRoutePath(context);
   context.stroke();
 
-  context.strokeStyle = HUD_PRIMARY;
+  context.strokeStyle = "rgba(124, 255, 158, 0.34)";
   context.lineWidth = 3;
   context.beginPath();
   drawSplashRoutePath(context);
   context.stroke();
+
+  context.strokeStyle = "rgba(221, 255, 227, 0.9)";
+  context.lineWidth = 2.2;
+  context.setLineDash([14, 11]);
+  context.lineDashOffset = -phase * 6;
+  context.beginPath();
+  drawSplashRoutePath(context);
+  context.stroke();
+  context.setLineDash([]);
 
   drawRotatedVehicleMarker(context, marker.x, marker.y, markerNext.x - marker.x, markerNext.y - marker.y, 0.72 + (phase % 3) * 0.05);
 
@@ -714,18 +719,17 @@ function lerp(start: number, end: number, progress: number): number {
 function drawBlitzerMenu(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot | undefined): void {
   const alert = snapshot?.hazardAlert;
   if (!alert) {
-    drawBlitzerLogo(context, 456, 68, 0.48);
-    context.fillStyle = HUD_TEXT;
-    context.font = "bold 18px system-ui, sans-serif";
-    context.textAlign = "right";
-    context.fillText("No camera", 536, 164);
-    context.fillStyle = HUD_MUTED;
+    drawStandaloneBlitzerSpeed(context, snapshot?.speedLabel ?? "--");
+    drawBlitzerLogo(context, 472, 104, 0.34);
+    context.fillStyle = "rgba(124, 255, 158, 0.62)";
     context.font = "bold 12px system-ui, sans-serif";
-    context.fillText("Blitzer armed", 536, 190);
+    context.textAlign = "right";
+    context.fillText("ARMED", 536, 184);
     drawTinyHint(context, snapshot?.hint ?? "", 32, 270);
     return;
   }
 
+  drawStandaloneBlitzerSpeed(context, snapshot?.speedLabel ?? alert.currentSpeedLabel ?? "--");
   drawStandaloneBlitzerWidget(context, alert);
   drawTinyHint(context, snapshot?.hint ?? "", 32, 270);
 }
@@ -1090,22 +1094,40 @@ function drawNavigationHazardAlert(
 }
 
 function drawStandaloneBlitzerWidget(context: CanvasRenderingContext2D, alert: GuidanceHazardAlert): void {
-  const right = 536;
-  drawBlitzerLogo(context, 458, 56, 0.44);
-  drawSpeedLimitSign(context, right - 38, 116, 24, alert.speedLimitValue ?? alert.speedLimitLabel, alert.unitSystem);
+  context.save();
+  context.fillStyle = "rgba(124, 255, 158, 0.08)";
+  context.strokeStyle = "rgba(124, 255, 158, 0.9)";
+  context.lineWidth = 1.6;
+  roundRect(context, 344, 112, 190, 48, 7);
+  context.fill();
+  context.stroke();
+
+  drawSpeedLimitSign(context, 372, 136, 15, alert.speedLimitValue ?? alert.speedLimitLabel, alert.unitSystem);
 
   context.fillStyle = HUD_TEXT;
-  context.font = "bold 22px system-ui, sans-serif";
-  context.textAlign = "right";
-  context.fillText(alert.distanceLabel, right, 166);
+  context.font = "bold 16px system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillText(alert.distanceLabel, 402, 132);
 
   context.fillStyle = HUD_PRIMARY;
-  context.font = "bold 17px system-ui, sans-serif";
-  context.fillText(alert.currentSpeedLabel ?? "--", right, 196);
+  context.font = "bold 14px system-ui, sans-serif";
+  context.fillText(alert.currentSpeedLabel ?? "--", 402, 150);
+  context.restore();
+}
 
-  context.fillStyle = HUD_MUTED;
-  context.font = "bold 11px system-ui, sans-serif";
-  context.fillText(trimImageLine(alert.statusLabel, 22), right, 224);
+function drawStandaloneBlitzerSpeed(context: CanvasRenderingContext2D, speedLabel: string): void {
+  context.save();
+  context.textAlign = "left";
+  context.fillStyle = HUD_TEXT;
+  context.font = "bold 34px system-ui, sans-serif";
+  context.fillText(speedLabel, 42, 138);
+  context.strokeStyle = "rgba(247, 210, 99, 0.82)";
+  context.lineWidth = 2.2;
+  context.beginPath();
+  context.moveTo(42, 152);
+  context.lineTo(122, 152);
+  context.stroke();
+  context.restore();
 }
 
 function drawBlitzerLogo(context: CanvasRenderingContext2D, x: number, y: number, scale: number): void {
