@@ -1,5 +1,11 @@
 import { makeGuidanceSnapshot, makeIdleSnapshot, type GuidanceSnapshot, type PositionSample } from "./guidance";
 import { GlassDisplay, type GlassImuSample } from "./glasses";
+import {
+  headingFromOrientationEvent,
+  imuYawDeltaDegrees,
+  normalizeDegrees,
+  smoothHeadingDegrees
+} from "./heading";
 import L, { type LatLngExpression, type Map as LeafletMap } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -1442,12 +1448,6 @@ function handleGlassesImu(sample: GlassImuSample): void {
   updateStatsCard();
 }
 
-function imuYawDeltaDegrees(currentZ: number, baseZ: number): number {
-  const rawDelta = currentZ - baseZ;
-  const deltaDegrees = Math.abs(rawDelta) <= Math.PI * 2 ? rawDelta * 180 / Math.PI : rawDelta;
-  return normalizeSignedDegrees(deltaDegrees);
-}
-
 function positionForGuidance(position: PositionSample): PositionSample {
   if (state.headingSource === "travel") {
     return position;
@@ -1558,53 +1558,18 @@ function handleDeviceOrientation(event: DeviceOrientationEvent): void {
 }
 
 function headingFromDeviceOrientation(event: DeviceOrientationEvent): { heading: number; accuracy: number | null; source: "webkit" | "absolute" } | null {
-  const compassEvent = event as DeviceOrientationEvent & {
+  const heading = headingFromOrientationEvent(event as DeviceOrientationEvent & {
     webkitCompassHeading?: number;
     webkitCompassAccuracy?: number;
-  };
-
-  if (typeof compassEvent.webkitCompassHeading === "number" && Number.isFinite(compassEvent.webkitCompassHeading)) {
-    const accuracy = typeof compassEvent.webkitCompassAccuracy === "number" && Number.isFinite(compassEvent.webkitCompassAccuracy)
-      ? compassEvent.webkitCompassAccuracy
-      : null;
-    if (accuracy != null && accuracy > 45) {
+  });
+  if (heading == null) {
+    const compassEvent = event as DeviceOrientationEvent & { webkitCompassAccuracy?: number };
+    if (typeof compassEvent.webkitCompassAccuracy === "number" && compassEvent.webkitCompassAccuracy > 45) {
       state.phoneHeadingStatus = "Phone compass low accuracy";
-      return null;
     }
-
-    return {
-      heading: normalizeDegrees(compassEvent.webkitCompassHeading),
-      accuracy,
-      source: "webkit"
-    };
   }
 
-  if (event.absolute === true && typeof event.alpha === "number" && Number.isFinite(event.alpha)) {
-    return {
-      heading: normalizeDegrees(360 - event.alpha),
-      accuracy: null,
-      source: "absolute"
-    };
-  }
-
-  return null;
-}
-
-function smoothHeadingDegrees(previous: number | null, next: number, ratio: number): number {
-  if (previous == null) {
-    return next;
-  }
-
-  const delta = ((((next - previous) % 360) + 540) % 360) - 180;
-  return normalizeDegrees(previous + delta * ratio);
-}
-
-function normalizeDegrees(degrees: number): number {
-  return ((degrees % 360) + 360) % 360;
-}
-
-function normalizeSignedDegrees(degrees: number): number {
-  return ((((degrees % 360) + 540) % 360) - 180);
+  return heading;
 }
 
 function scheduleSearch(): void {

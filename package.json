@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
+    "test:heading": "tsc -p tsconfig.heading-tests.json && node --test tests/heading.test.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "sim": "evenhub-simulator http://localhost:5173",
     "pack": "npm run build && evenhub pack app.json dist -o apexline.ehpk"
