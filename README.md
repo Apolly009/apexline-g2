@@ -29,6 +29,8 @@ guidance tuned for motorcycle and spirited car use.
   bounded relative G2 IMU yaw deltas when the SDK provides them. If heading data
   is unavailable, stale, relative-only, or low accuracy, guidance falls back to
   GPS course/travel heading.
+- G2-facing mode can also use strong matching phone/G2 acceleration events as a
+  low-trust auto-recenter assist; steady or noisy motion is ignored.
 - Supports glasses/ring input:
   - Startup screen: click opens Choose Favorites when favorites are available.
   - Favorite picker: swipe up/down cycles saved places, click selects the
@@ -67,7 +69,7 @@ They reset to hidden on every fresh app load. Dev launch flags remain available
 for simulator testing, for example `?devRoute=1&view=map&autoDrive=1`.
 Heading test flags include `?heading=phone&phoneHeading=90`,
 `?heading=glasses&glassesHeading=90`, and
-`?heading=glasses&phoneHeading=90&glassesImuBase=0&glassesImuZ=45`.
+`?heading=glasses&phoneHeading=90&phoneAccelX=0&phoneAccelY=3&glassesImuBase=0&glassesImuZ=45`.
 With dev tools enabled, the phone/browser window also accepts keyboard gesture
 testing: Enter is click, ArrowUp/ArrowDown are swipes, D or Escape is double
 press, and L is long press.
@@ -117,6 +119,11 @@ Phone compass anchoring only accepts Safari `webkitCompassHeading` or
 standards-based device orientation events where `absolute === true`; relative
 orientation `alpha` is ignored because it is not a stable magnetic/course
 anchor.
+
+Acceleration lock is only an assist. It compares fresh planar acceleration from
+the phone and G2 to infer a phone-to-glasses offset, then gently nudges the
+G2-facing anchor when confidence is high enough. It is not used as a standalone
+heading source.
 
 If location does not lock, press "Use current location" after confirming the
 Even Realities app has Location permission in iOS/Android settings. For simulator

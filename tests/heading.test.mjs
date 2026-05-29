@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  estimateAccelerationLockOffset,
   headingFromOrientationEvent,
   imuYawDeltaDegrees,
   normalizeDegrees,
@@ -44,4 +45,16 @@ test("accepts standards absolute orientation alpha", () => {
     headingFromOrientationEvent({ alpha: 90, absolute: true }),
     { heading: 270, accuracy: null, source: "absolute" }
   );
+});
+
+test("estimates phone-to-glasses offset from matching acceleration vectors", () => {
+  const estimate = estimateAccelerationLockOffset({ x: 0, y: 3 }, { x: 3, y: 0 });
+  assert.ok(estimate);
+  assert.equal(Math.round(estimate.offsetDegrees), 90);
+  assert.ok(estimate.confidence > 0.5);
+});
+
+test("rejects weak or mismatched acceleration vectors", () => {
+  assert.equal(estimateAccelerationLockOffset({ x: 0.1, y: 0.1 }, { x: 3, y: 0 }), null);
+  assert.equal(estimateAccelerationLockOffset({ x: 10, y: 0 }, { x: 1, y: 0 }), null);
 });

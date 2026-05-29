@@ -1,9 +1,12 @@
 import { makeGuidanceSnapshot, makeIdleSnapshot, type GuidanceSnapshot, type PositionSample } from "./guidance";
 import { GlassDisplay, type GlassImuSample } from "./glasses";
 import {
+  estimateAccelerationLockOffset,
   headingFromOrientationEvent,
   imuYawDeltaDegrees,
   normalizeDegrees,
+  normalizeSignedDegrees,
+  type PlanarVector,
   smoothHeadingDegrees
 } from "./heading";
 import L, { type LatLngExpression, type Map as LeafletMap } from "leaflet";
@@ -68,12 +71,17 @@ type AppState = {
   phoneHeadingAccuracyDegrees: number | null;
   phoneHeadingStatus: string;
   lastPhoneHeadingAt: number;
+  phoneAccelerationVector: PlanarVector | null;
+  lastPhoneAccelerationAt: number;
   glassesHeadingDegrees: number | null;
   glassesHeadingStatus: string;
   glassesImuBaseZ: number | null;
   glassesHeadingAnchorDegrees: number | null;
   lastGlassesImuSample: GlassImuSample | null;
   lastGlassesImuAt: number;
+  accelerationLockOffsetDegrees: number | null;
+  accelerationLockConfidence: number;
+  lastAccelerationLockAt: number;
   locationSource: "gps" | "manual" | "simulated" | null;
   locationStatus: string;
   nextStepIndex: number;
@@ -139,12 +147,17 @@ const state: AppState = {
   phoneHeadingAccuracyDegrees: null,
   phoneHeadingStatus: "Travel heading",
   lastPhoneHeadingAt: 0,
+  phoneAccelerationVector: null,
+  lastPhoneAccelerationAt: 0,
   glassesHeadingDegrees: null,
   glassesHeadingStatus: "Waiting for G2 motion",
   glassesImuBaseZ: null,
   glassesHeadingAnchorDegrees: null,
   lastGlassesImuSample: null,
   lastGlassesImuAt: 0,
+  accelerationLockOffsetDegrees: null,
+  accelerationLockConfidence: 0,
+  lastAccelerationLockAt: 0,
   locationSource: null,
   locationStatus: "No location yet",
   nextStepIndex: 0,
@@ -188,6 +201,7 @@ let titleTapCount = 0;
 let titleTapResetTimer: number | null = null;
 let devGlassesKeyboardBound = false;
 let phoneHeadingListenerBound = false;
+let phoneMotionListenerBound = false;
 let devGlassesHeadingOverrideAt = 0;
 
 void boot();
@@ -214,6 +228,7 @@ function installDevGlassHarness(): void {
   const devWindow = window as Window & {
     __apexlineDevGlassInput?: (action: GlassAction) => void;
     __apexlineDevGlassImu?: (sample: number | Partial<GlassImuSample>) => void;
+    __apexlineDevPhoneMotion?: (sample: Partial<PlanarVector>) => void;
     __apexlineDebugState?: () => Record<string, unknown>;
   };
 
@@ -231,6 +246,13 @@ function installDevGlassHarness(): void {
 
     runDevGlassImu(sample);
   };
+  devWindow.__apexlineDevPhoneMotion = (sample) => {
+    if (!state.devToolsEnabled) {
+      return;
+    }
+
+    runDevPhoneMotion(sample);
+  };
   devWindow.__apexlineDebugState = devDebugSnapshot;
   document.addEventListener("apexline-dev-glass-input", (event) => {
     const action = (event as CustomEvent<unknown>).detail;
@@ -247,6 +269,13 @@ function installDevGlassHarness(): void {
 
     runDevGlassImu((event as CustomEvent<unknown>).detail as number | Partial<GlassImuSample>);
   });
+  document.addEventListener("apexline-dev-phone-motion", (event) => {
+    if (!state.devToolsEnabled) {
+      return;
+    }
+
+    runDevPhoneMotion((event as CustomEvent<unknown>).detail as Partial<PlanarVector>);
+  });
 }
 
 function devDebugSnapshot(): Record<string, unknown> {
@@ -257,10 +286,15 @@ function devDebugSnapshot(): Record<string, unknown> {
     headingSource: state.headingSource,
     headingStatus: headingStatusSummary(),
     phoneHeadingAccuracyDegrees: state.phoneHeadingAccuracyDegrees,
+    phoneAccelerationVector: state.phoneAccelerationVector,
+    lastPhoneAccelerationAgeMs: state.lastPhoneAccelerationAt > 0 ? Date.now() - state.lastPhoneAccelerationAt : null,
     glassesHeadingDegrees: state.glassesHeadingDegrees,
     glassesImuBaseZ: state.glassesImuBaseZ,
     lastGlassesImuSample: state.lastGlassesImuSample,
     lastGlassesImuAgeMs: state.lastGlassesImuAt > 0 ? Date.now() - state.lastGlassesImuAt : null,
+    accelerationLockOffsetDegrees: state.accelerationLockOffsetDegrees,
+    accelerationLockConfidence: state.accelerationLockConfidence,
+    lastAccelerationLockAgeMs: state.lastAccelerationLockAt > 0 ? Date.now() - state.lastAccelerationLockAt : null,
     mode: state.mode,
     unitSystem: state.unitSystem,
     showSideRoads: state.showSideRoads,
@@ -296,6 +330,19 @@ function runDevGlassImu(sample: number | Partial<GlassImuSample>): void {
   }
 
   handleGlassesImu(imuSample);
+  syncDevDebugState();
+  window.setTimeout(syncDevDebugState, 0);
+}
+
+function runDevPhoneMotion(sample: Partial<PlanarVector>): void {
+  const x = Number(sample.x);
+  const y = Number(sample.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return;
+  }
+
+  state.phoneAccelerationVector = { x, y };
+  state.lastPhoneAccelerationAt = Date.now();
   syncDevDebugState();
   window.setTimeout(syncDevDebugState, 0);
 }
@@ -353,6 +400,13 @@ function applyLaunchOptions(): void {
     state.phoneHeadingAccuracyDegrees = 0;
     state.lastPhoneHeadingAt = Date.now();
     state.phoneHeadingStatus = "Dev phone compass";
+  }
+
+  const phoneAccelX = Number(params.get("phoneAccelX"));
+  const phoneAccelY = Number(params.get("phoneAccelY"));
+  if (Number.isFinite(phoneAccelX) && Number.isFinite(phoneAccelY)) {
+    state.phoneAccelerationVector = { x: phoneAccelX, y: phoneAccelY };
+    state.lastPhoneAccelerationAt = Date.now();
   }
 
   const glassesHeading = Number(params.get("glassesHeading"));
@@ -1429,6 +1483,7 @@ function handleGlassesImu(sample: GlassImuSample): void {
   }
 
   const yawDelta = imuYawDeltaDegrees(sample.z, state.glassesImuBaseZ);
+  applyAccelerationLockAssist(sample, yawDelta);
   if (Math.abs(yawDelta) > 160) {
     state.glassesImuBaseZ = sample.z;
     state.glassesHeadingAnchorDegrees = anchor ?? state.glassesHeadingDegrees ?? state.glassesHeadingAnchorDegrees;
@@ -1446,6 +1501,45 @@ function handleGlassesImu(sample: GlassImuSample): void {
     void updateGlass();
   }
   updateStatsCard();
+}
+
+function applyAccelerationLockAssist(sample: GlassImuSample, yawDelta: number): void {
+  const phoneHeading = currentPhoneHeadingDegrees();
+  if (phoneHeading == null || state.phoneAccelerationVector == null || state.glassesHeadingAnchorDegrees == null) {
+    return;
+  }
+
+  if (Date.now() - state.lastPhoneAccelerationAt > 700) {
+    return;
+  }
+
+  const lock = estimateAccelerationLockOffset(
+    state.phoneAccelerationVector,
+    { x: sample.x, y: sample.y }
+  );
+  if (!lock || lock.confidence < 0.22) {
+    return;
+  }
+
+  const targetGlassesHeading = normalizeDegrees(phoneHeading + lock.offsetDegrees);
+  const targetAnchor = normalizeDegrees(targetGlassesHeading - yawDelta);
+  const correction = Math.abs(normalizeSignedDegrees(targetAnchor - state.glassesHeadingAnchorDegrees));
+  if (correction > 55) {
+    state.accelerationLockConfidence = lock.confidence;
+    state.accelerationLockOffsetDegrees = lock.offsetDegrees;
+    state.glassesHeadingStatus = "Accel lock rejected";
+    return;
+  }
+
+  state.glassesHeadingAnchorDegrees = smoothHeadingDegrees(
+    state.glassesHeadingAnchorDegrees,
+    targetAnchor,
+    Math.min(0.12, 0.035 + lock.confidence * 0.07)
+  );
+  state.accelerationLockOffsetDegrees = lock.offsetDegrees;
+  state.accelerationLockConfidence = lock.confidence;
+  state.lastAccelerationLockAt = Date.now();
+  state.glassesHeadingStatus = "G2 accel lock";
 }
 
 function positionForGuidance(position: PositionSample): PositionSample {
@@ -1497,6 +1591,9 @@ async function startPhoneHeadingTracking(requestPermission: boolean): Promise<vo
   const orientationConstructor = window.DeviceOrientationEvent as
     | (typeof DeviceOrientationEvent & { requestPermission?: () => Promise<PermissionState> })
     | undefined;
+  const motionConstructor = window.DeviceMotionEvent as
+    | (typeof DeviceMotionEvent & { requestPermission?: () => Promise<PermissionState> })
+    | undefined;
 
   if (requestPermission && orientationConstructor?.requestPermission) {
     try {
@@ -1519,6 +1616,14 @@ async function startPhoneHeadingTracking(requestPermission: boolean): Promise<vo
     return;
   }
 
+  if (requestPermission && motionConstructor?.requestPermission) {
+    try {
+      await motionConstructor.requestPermission();
+    } catch {
+      state.phoneHeadingStatus = "Phone motion permission failed";
+    }
+  }
+
   if (!("DeviceOrientationEvent" in window)) {
     state.phoneHeadingStatus = "Phone compass unavailable";
     void updateGlass();
@@ -1530,6 +1635,10 @@ async function startPhoneHeadingTracking(requestPermission: boolean): Promise<vo
     window.addEventListener("deviceorientation", handleDeviceOrientation, true);
     window.addEventListener("deviceorientationabsolute", handleDeviceOrientation, true);
     phoneHeadingListenerBound = true;
+  }
+  if (!phoneMotionListenerBound && "DeviceMotionEvent" in window) {
+    window.addEventListener("devicemotion", handleDeviceMotion, true);
+    phoneMotionListenerBound = true;
   }
 
   state.phoneHeadingStatus = "Phone compass listening";
@@ -1554,6 +1663,19 @@ function handleDeviceOrientation(event: DeviceOrientationEvent): void {
   if (state.navigating && (state.headingSource === "phone" || state.headingSource === "glasses")) {
     void updateGlass();
   }
+  updateStatsCard();
+}
+
+function handleDeviceMotion(event: DeviceMotionEvent): void {
+  const acceleration = event.acceleration;
+  const x = acceleration?.x;
+  const y = acceleration?.y;
+  if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) {
+    return;
+  }
+
+  state.phoneAccelerationVector = { x, y };
+  state.lastPhoneAccelerationAt = Date.now();
   updateStatsCard();
 }
 

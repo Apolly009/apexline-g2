@@ -25,10 +25,16 @@ heading mode verified.
 - In simulator/dev mode, use `window.__apexlineDevGlassImu({ z: 45 })` or the
   launch flags `phoneHeading=90&glassesImuBase=0&glassesImuZ=45` to exercise the
   same yaw math without hardware.
+- To test acceleration lock assist in dev mode, inject matching phone and G2
+  planar acceleration with `window.__apexlineDevPhoneMotion({ x: 0, y: 3 })`
+  followed by `window.__apexlineDevGlassImu({ x: 3, y: 0, z: 45 })`, or launch
+  with `phoneAccelX=0&phoneAccelY=3`.
 - Rotate the glasses left and right while the phone stays still.
 - Confirm Arrow mode and Map mode rotate relative to where the glasses face.
 - Confirm the route does not jump, blink, or trigger click/swipe actions during
   IMU streaming.
+- Confirm strong acceleration/braking/cornering events update
+  `accelerationLockConfidence` without causing visible HUD snaps.
 - Hold the glasses still for at least two minutes and confirm heading does not
   drift away from the phone/GPS anchor.
 - Walk or drive a short wrong-way segment and confirm reroute behavior still
