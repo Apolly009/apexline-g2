@@ -28,10 +28,10 @@ guidance tuned for motorcycle and spirited car use.
   feeds alert distance and speed-limit data into Apexline. The app cannot read
   another app's iOS notifications directly from the EvenHub WebView.
 - Supports glasses/ring input:
-  - Startup screen: long press opens Choose Mode, where Navigation and Blitzer
-    can be selected from the glasses.
-  - Choose Mode: swipe up/down moves between Navigation and Blitzer, click
-    selects, double press backs out.
+  - Cold boot shows a short Apexline splash, then flows into the glasses home
+    menu. Tap/click skips the splash.
+  - Home menu: swipe up/down moves between Navigation, Blitzer, and Settings;
+    click selects, double press stays at home.
   - Favorite picker: swipe up/down cycles saved places, click selects the
     start or finish, double press backs out.
   - Route-ready screen: click starts navigation.
@@ -61,15 +61,26 @@ http://localhost:5173/
 With the dev server running:
 
 ```bash
-evenhub-simulator http://localhost:5173
+evenhub-simulator --automation-port 9898 http://localhost:5173
 ```
 
 Developer tools are hidden in the normal phone UI. Tap the Apexline title five
 times to toggle them for the current session, or open with `?devTools=1`.
 They reset to hidden on every fresh app load. Dev launch flags remain available
 for simulator testing, for example `?devRoute=1&view=map&autoDrive=1`.
-Blitzer alert testing can use `?blitzer=1&blitzerDistance=600&blitzerSpeed=80`
-or the dev console helper `window.__apexlineBlitzerAlert("Speed camera in 600 m 80 km/h")`.
+Blitzer alert testing can use the dev-only Simulate Blitzer alert button,
+`?blitzer=1&blitzerDistance=600&blitzerSpeed=80`, or the dev console helper
+`window.__apexlineBlitzerAlert("Speed camera in 600 m 80 km/h")`.
+Use `?devSplashMs=12000` to hold the glasses cold-boot splash longer while
+checking it in the simulator.
+Capture the glasses display without raising the simulator windows with:
+
+```bash
+npm run sim:screenshot
+```
+
+The simulator screenshot is transparent; the script also writes a black-preview
+PNG for easier local review.
 With dev tools enabled, the phone/browser window also accepts keyboard gesture
 testing: Enter is click, ArrowUp/ArrowDown are swipes, D or Escape is double
 press, and L is long press.

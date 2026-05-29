@@ -504,6 +504,17 @@ h1 {
   background: rgba(232, 95, 63, 0.12);
 }
 
+.dev-route.secondary {
+  border-color: rgba(243, 244, 239, 0.28);
+  color: #d7dcdb;
+  background: rgba(243, 244, 239, 0.06);
+}
+
+.dev-route:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
 .dev-speed-control {
   display: grid;
   grid-column: 1 / -1;
