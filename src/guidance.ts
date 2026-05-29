@@ -35,6 +35,7 @@ export type GuidanceSnapshot = {
   showSpeed?: boolean;
   showControlHints?: boolean;
   nightMode?: boolean;
+  arrowLayout?: "left" | "bottom";
   homeVariant?: "splash" | "transition" | "menu";
   splashFrame?: number;
   transitionFrame?: number;

@@ -26,6 +26,7 @@ type AppState = {
   showSpeed: boolean;
   showControlHints: boolean;
   nightMode: boolean;
+  arrowLayout: "left" | "bottom";
   activeSearchField: "origin" | "destination" | null;
   bridgeConnected: boolean;
   locating: boolean;
@@ -77,6 +78,7 @@ const SIDE_ROADS_STORAGE_KEY = "apexline-side-roads";
 const SPEED_DISPLAY_STORAGE_KEY = "apexline-speed-display";
 const CONTROL_HINTS_STORAGE_KEY = "apexline-control-hints";
 const NIGHT_MODE_STORAGE_KEY = "apexline-night-mode";
+const ARROW_LAYOUT_STORAGE_KEY = "apexline-arrow-layout";
 const GLASSES_SPLASH_MS = 3450;
 const GLASSES_SPLASH_FRAME_MS = 90;
 const GLASSES_HOME_TRANSITION_MS = 650;
@@ -91,6 +93,7 @@ const state: AppState = {
   showSpeed: loadSpeedDisplayEnabled(),
   showControlHints: loadControlHintsEnabled(),
   nightMode: loadNightModeEnabled(),
+  arrowLayout: loadArrowLayout(),
   activeSearchField: null,
   bridgeConnected: false,
   locating: false,
@@ -317,6 +320,7 @@ function devDebugSnapshot(): Record<string, unknown> {
     showSideRoads: state.showSideRoads,
     showSpeed: state.showSpeed,
     showControlHints: state.showControlHints,
+    arrowLayout: state.arrowLayout,
     settingsIndex: state.glassesSettingsIndex,
     homeSelectionIndex: state.glassesHomeSelectionIndex,
     startFavoriteIndex: state.glassesStartFavoriteIndex,
@@ -383,6 +387,12 @@ function applyLaunchOptions(): void {
   if (params.has("night")) {
     state.nightMode = params.get("night") !== "0";
     saveNightModeEnabled();
+  }
+
+  const arrowLayout = params.get("arrowLayout");
+  if (arrowLayout === "left" || arrowLayout === "bottom") {
+    state.arrowLayout = arrowLayout;
+    saveArrowLayout();
   }
 
   if (params.has("devTools")) {
@@ -578,6 +588,13 @@ function renderSettingsMenu(): string {
           <input type="checkbox" data-night-mode ${state.nightMode ? "checked" : ""} />
           <span>Night HUD</span>
         </label>
+        <div class="setting-group">
+          <span>Arrow position</span>
+          <div class="segmented-row" role="group" aria-label="Arrow position">
+            <button class="view-mode ${state.arrowLayout === "left" ? "active" : ""}" data-arrow-layout="left" type="button">Left</button>
+            <button class="view-mode ${state.arrowLayout === "bottom" ? "active" : ""}" data-arrow-layout="bottom" type="button">Bottom</button>
+          </div>
+        </div>
         <label class="setting-toggle">
           <input type="checkbox" data-control-hints ${state.showControlHints ? "checked" : ""} />
           <span>Glasses control hints</span>
@@ -913,6 +930,18 @@ function bindEvents(): void {
     saveNightModeEnabled();
     void updateGlass();
     render();
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-arrow-layout]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const layout = button.dataset.arrowLayout;
+      if (layout === "left" || layout === "bottom") {
+        state.arrowLayout = layout;
+        saveArrowLayout();
+        void updateGlass();
+        render();
+      }
+    });
   });
 
   document.querySelector<HTMLInputElement>("[data-control-hints]")?.addEventListener("change", (event) => {
@@ -1325,6 +1354,14 @@ function loadNightModeEnabled(): boolean {
 
 function saveNightModeEnabled(): void {
   window.localStorage.setItem(NIGHT_MODE_STORAGE_KEY, state.nightMode ? "1" : "0");
+}
+
+function loadArrowLayout(): AppState["arrowLayout"] {
+  return window.localStorage.getItem(ARROW_LAYOUT_STORAGE_KEY) === "bottom" ? "bottom" : "left";
+}
+
+function saveArrowLayout(): void {
+  window.localStorage.setItem(ARROW_LAYOUT_STORAGE_KEY, state.arrowLayout);
 }
 
 function formatCurrentSpeed(): string {
@@ -1934,7 +1971,8 @@ function withDisplayPreferences(snapshot: GuidanceSnapshot): GuidanceSnapshot {
     showSideRoads: state.showSideRoads,
     showSpeed: state.showSpeed,
     showControlHints: state.showControlHints,
-    nightMode: state.nightMode
+    nightMode: state.nightMode,
+    arrowLayout: state.arrowLayout
   };
 }
 
@@ -2007,8 +2045,9 @@ function favoriteGlassesSnapshot(target: GlassPickerTarget): GuidanceSnapshot {
     return {
       ...makeIdleSnapshot(target === "origin" ? "No start options" : "No destinations"),
       title: target === "origin" ? "Choose Start" : "Choose Finish",
-      secondary: target === "origin" ? "Start on phone or save favorites" : "Save favorites on phone",
-      tertiary: "",
+      primary: target === "origin" ? "Start on phone" : "Save favorites",
+      secondary: target === "origin" ? "or save favorites" : "Use the phone app",
+      tertiary: target === "origin" ? "" : "No destinations",
       hint: state.showControlHints ? "Double back" : "",
       pickerItems: visibleGlassPickerItems(target)
     };
@@ -2411,6 +2450,14 @@ function glassesSettings(): Array<{ label: string; value: () => string; toggle: 
       toggle: () => {
         state.nightMode = !state.nightMode;
         saveNightModeEnabled();
+      }
+    },
+    {
+      label: "Arrow position",
+      value: () => state.arrowLayout === "bottom" ? "Bottom center" : "Left side",
+      toggle: () => {
+        state.arrowLayout = state.arrowLayout === "bottom" ? "left" : "bottom";
+        saveArrowLayout();
       }
     }
   ];

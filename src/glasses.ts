@@ -261,6 +261,7 @@ function glassRenderKey(snapshot: GuidanceSnapshot, content: string): string {
     snapshot.showSideRoads ? "side-roads" : "clean",
     snapshot.showSpeed ? snapshot.speedLabel ?? "speed" : "no-speed",
     snapshot.nightMode ? "night" : "day",
+    snapshot.arrowLayout ?? "left-arrow",
     snapshot.homeVariant ?? "",
     snapshot.splashFrame ?? "",
     snapshot.transitionFrame ?? "",
@@ -337,7 +338,11 @@ function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSna
   }
 
   drawHudHint(context, snapshot);
-  drawRouteCue(context, snapshot, 44, 58, 168, 180);
+  if (snapshot.arrowLayout === "bottom") {
+    drawRouteCue(context, snapshot, 212, 118, 152, 128);
+  } else {
+    drawRouteCue(context, snapshot, 44, 58, 168, 180);
+  }
 
   context.fillStyle = HUD_TEXT;
   context.font = "bold 30px system-ui, sans-serif";
@@ -412,7 +417,11 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
 function drawNightArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
   context.save();
   context.globalAlpha = 0.58;
-  drawRouteCue(context, snapshot, 70, 76, 128, 144, true);
+  if (snapshot.arrowLayout === "bottom") {
+    drawRouteCue(context, snapshot, 218, 184, 140, 80, true);
+  } else {
+    drawRouteCue(context, snapshot, 70, 76, 128, 144, true);
+  }
   context.restore();
   drawNightDataStack(context, snapshot);
 }
