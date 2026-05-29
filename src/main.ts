@@ -2315,11 +2315,16 @@ function homeMenuGlassesSnapshot(): GuidanceSnapshot {
   const hasFavorites = glassesPickerOptions("destination").length > 0;
   const blitzerAlert = currentBlitzerAlert();
   const homeVariant = state.glassesScreen === "homeTransition" ? "transition" : "menu";
+  const navigationStatus = hasRoute
+    ? "Phone route ready"
+    : hasFavorites
+      ? "Start on phone or favorites"
+      : "Start navigation on phone";
   return {
     active: false,
     title: "Choose Mode",
     primary: "Apexline",
-    secondary: blitzerAlert ? "Camera ahead" : hasRoute ? "Phone route ready" : hasFavorites ? "Favorites ready" : state.position ? "GPS ready" : "No GPS",
+    secondary: state.glassesHomeSelectionIndex === 0 ? navigationStatus : blitzerAlert ? "Camera ahead" : state.position ? "GPS ready" : "No GPS",
     tertiary: "",
     hint: state.showControlHints ? "Swipe move | Click select | Double back" : "",
     arrow: "--",
