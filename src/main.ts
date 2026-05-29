@@ -53,7 +53,7 @@ type AppState = {
   glassesDestinationFavoriteIndex: number;
   glassesSettingsIndex: number;
   glassesHomeSelectionIndex: number;
-  glassesScreen: "splash" | "homeTransition" | "home" | "homeMenu" | "favoriteOrigin" | "favoriteDestination" | "routeReady" | "settings";
+  glassesScreen: "splash" | "homeTransition" | "home" | "homeMenu" | "favoriteOrigin" | "favoriteDestination" | "routeReady" | "settings" | "speed";
   glassesSelectedOrigin: PlaceResult | null;
   devToolsEnabled: boolean;
   selectedPlace: PlaceResult | null;
@@ -1952,6 +1952,10 @@ function currentSnapshot(): GuidanceSnapshot {
       return routeReadyGlassesSnapshot();
     }
 
+    if (state.glassesScreen === "speed") {
+      return speedGlassesSnapshot();
+    }
+
     return homeMenuGlassesSnapshot();
   }
 
@@ -2050,8 +2054,27 @@ function homeMenuGlassesSnapshot(): GuidanceSnapshot {
     transitionFrame: homeVariant === "transition" ? glassesHomeTransitionFrame : undefined,
     pickerItems: [
       { label: "Navigation", badge: hasRoute ? "READY" : hasFavorites ? "FAV" : state.position ? "GPS" : "WAIT", selected: state.glassesHomeSelectionIndex === 0 },
-      { label: "Settings", selected: state.glassesHomeSelectionIndex === 1 }
+      { label: "Speed", badge: state.position ? "LIVE" : "WAIT", selected: state.glassesHomeSelectionIndex === 1 },
+      { label: "Settings", selected: state.glassesHomeSelectionIndex === 2 }
     ]
+  };
+}
+
+function speedGlassesSnapshot(): GuidanceSnapshot {
+  return {
+    active: false,
+    title: "Speed",
+    primary: formatCurrentSpeed(),
+    secondary: state.locationSource ? locationSourceLabel() : "Waiting for GPS",
+    tertiary: state.mode === "motorcycle" ? "Moto" : "Drive",
+    hint: state.showControlHints ? "Double back | Long settings" : "",
+    arrow: "--",
+    nextStepIndex: 0,
+    distanceToStepMeters: 0,
+    offRoute: false,
+    showControlHints: state.showControlHints,
+    showSpeed: true,
+    speedLabel: formatCurrentSpeed()
   };
 }
 
@@ -2145,6 +2168,11 @@ function handleGlassInput(action: GlassAction): void {
     return;
   }
 
+  if (state.glassesScreen === "speed") {
+    handleSpeedDisplayInput(action);
+    return;
+  }
+
   if (state.navigating) {
     if (action === "double") {
       state.glassesScreen = "home";
@@ -2232,7 +2260,7 @@ function handleHomeMenuInput(action: GlassAction): void {
 
   if (action === "up" || action === "down") {
     const direction = action === "up" ? -1 : 1;
-    state.glassesHomeSelectionIndex = (state.glassesHomeSelectionIndex + direction + 2) % 2;
+    state.glassesHomeSelectionIndex = (state.glassesHomeSelectionIndex + direction + homeMenuItemCount()) % homeMenuItemCount();
     void updateGlass();
     return;
   }
@@ -2242,6 +2270,13 @@ function handleHomeMenuInput(action: GlassAction): void {
   }
 
   if (state.glassesHomeSelectionIndex === 1) {
+    state.glassesScreen = "speed";
+    void updateGlass();
+    render();
+    return;
+  }
+
+  if (state.glassesHomeSelectionIndex === 2) {
     state.glassesScreen = "settings";
     void updateGlass();
     render();
@@ -2256,6 +2291,28 @@ function handleHomeMenuInput(action: GlassAction): void {
   state.glassesScreen = "favoriteOrigin";
   void updateGlass();
   render();
+}
+
+function homeMenuItemCount(): number {
+  return 3;
+}
+
+function handleSpeedDisplayInput(action: GlassAction): void {
+  if (action === "double") {
+    state.glassesScreen = "home";
+    void updateGlass();
+    render();
+    return;
+  }
+
+  if (action === "long") {
+    state.glassesScreen = "settings";
+    void updateGlass();
+    render();
+    return;
+  }
+
+  void updateGlass();
 }
 
 function handleFavoritePickerInput(target: GlassPickerTarget, action: GlassAction): void {
