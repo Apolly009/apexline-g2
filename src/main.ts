@@ -1978,16 +1978,11 @@ function homeMenuGlassesSnapshot(): GuidanceSnapshot {
   const hasFavorites = glassesPickerOptions("destination").length > 0;
   const hasRoute = Boolean(state.position && state.selectedPlace);
   const homeVariant = state.glassesScreen === "homeTransition" ? "transition" : "menu";
-  const navigationStatus = hasRoute
-    ? "Phone route ready"
-    : hasFavorites
-      ? "Start on phone or favorites"
-      : "Start navigation on phone";
   return {
     active: false,
     title: "Choose Mode",
     primary: "Apexline",
-    secondary: state.glassesHomeSelectionIndex === 0 ? navigationStatus : state.position ? "GPS ready" : "No GPS",
+    secondary: hasRoute ? "Phone route ready" : hasFavorites ? "Favorites ready" : state.position ? "GPS ready" : "No GPS",
     tertiary: "",
     hint: state.showControlHints ? "Swipe move | Click select" : "",
     arrow: "--",
@@ -2007,11 +2002,12 @@ function homeMenuGlassesSnapshot(): GuidanceSnapshot {
 function favoriteGlassesSnapshot(target: GlassPickerTarget): GuidanceSnapshot {
   const option = selectedGlassesFavorite(target);
   const options = glassesPickerOptions(target);
+  const phoneStartHint = "Start on phone or pick favorite";
   if (!option) {
     return {
       ...makeIdleSnapshot(target === "origin" ? "No start options" : "No destinations"),
       title: target === "origin" ? "Choose Start" : "Choose Finish",
-      secondary: target === "origin" ? "Use GPS or save favorites" : "Save favorites on phone",
+      secondary: target === "origin" ? "Start on phone or save favorites" : "Save favorites on phone",
       tertiary: "",
       hint: state.showControlHints ? "Double back" : "",
       pickerItems: visibleGlassPickerItems(target)
@@ -2024,8 +2020,8 @@ function favoriteGlassesSnapshot(target: GlassPickerTarget): GuidanceSnapshot {
     active: false,
     title: target === "origin" ? "Choose Start" : "Choose Finish",
     primary: option.label,
-    secondary: `${index}/${count}`,
-    tertiary: "",
+    secondary: target === "origin" ? phoneStartHint : `${index}/${count}`,
+    tertiary: target === "origin" ? `${index}/${count}` : "",
     hint: state.showControlHints ? "Swipe scroll | Click select | Double back" : "",
     arrow: "--",
     nextStepIndex: 0,
