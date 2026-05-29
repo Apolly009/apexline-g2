@@ -1,0 +1,475 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0A1000010000000000000001 /* ApexlineNotificationBridgeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A2000010000000000000001 /* ApexlineNotificationBridgeApp.swift */; };
+		0A1000020000000000000001 /* AccessoryForwardingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A2000020000000000000001 /* AccessoryForwardingController.swift */; };
+		0A1000030000000000000001 /* ApexlineBridgeAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A2000030000000000000001 /* ApexlineBridgeAlert.swift */; };
+		0A1000040000000000000001 /* ApexlineBridgeAlert.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A2000030000000000000001 /* ApexlineBridgeAlert.swift */; };
+		0A1000050000000000000001 /* ApexlineAccessoryDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A2000040000000000000001 /* ApexlineAccessoryDataProvider.swift */; };
+		0A1000060000000000000001 /* ApexlineNotificationBridgeDataProvider.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 0A3000020000000000000001 /* ApexlineNotificationBridgeDataProvider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		0A1100010000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0A4000010000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0A5000020000000000000001;
+			remoteInfo = ApexlineNotificationBridgeDataProvider;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		0A1200010000000000000001 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Extensions;
+			dstSubfolderSpec = 1;
+			files = (
+				0A1000060000000000000001 /* ApexlineNotificationBridgeDataProvider.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		0A2000010000000000000001 /* ApexlineNotificationBridgeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApexlineNotificationBridgeApp.swift; sourceTree = "<group>"; };
+		0A2000020000000000000001 /* AccessoryForwardingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessoryForwardingController.swift; sourceTree = "<group>"; };
+		0A2000030000000000000001 /* ApexlineBridgeAlert.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApexlineBridgeAlert.swift; sourceTree = "<group>"; };
+		0A2000040000000000000001 /* ApexlineAccessoryDataProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApexlineAccessoryDataProvider.swift; sourceTree = "<group>"; };
+		0A2000050000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		0A2000060000000000000001 /* ApexlineNotificationBridge.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ApexlineNotificationBridge.entitlements; sourceTree = "<group>"; };
+		0A2000070000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		0A2000080000000000000001 /* ApexlineAccessoryDataProvider.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ApexlineAccessoryDataProvider.entitlements; sourceTree = "<group>"; };
+		0A3000010000000000000001 /* ApexlineNotificationBridge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ApexlineNotificationBridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0A3000020000000000000001 /* ApexlineNotificationBridgeDataProvider.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ApexlineNotificationBridgeDataProvider.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		0A1300010000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0A1300020000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0A6000010000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				0A6000020000000000000001 /* App */,
+				0A6000030000000000000001 /* Shared */,
+				0A6000040000000000000001 /* DataProvider */,
+				0A6000050000000000000001 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		0A6000020000000000000001 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				0A2000010000000000000001 /* ApexlineNotificationBridgeApp.swift */,
+				0A2000020000000000000001 /* AccessoryForwardingController.swift */,
+				0A2000050000000000000001 /* Info.plist */,
+				0A2000060000000000000001 /* ApexlineNotificationBridge.entitlements */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		0A6000030000000000000001 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				0A2000030000000000000001 /* ApexlineBridgeAlert.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		0A6000040000000000000001 /* DataProvider */ = {
+			isa = PBXGroup;
+			children = (
+				0A2000040000000000000001 /* ApexlineAccessoryDataProvider.swift */,
+				0A2000070000000000000001 /* Info.plist */,
+				0A2000080000000000000001 /* ApexlineAccessoryDataProvider.entitlements */,
+			);
+			path = DataProvider;
+			sourceTree = "<group>";
+		};
+		0A6000050000000000000001 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				0A3000010000000000000001 /* ApexlineNotificationBridge.app */,
+				0A3000020000000000000001 /* ApexlineNotificationBridgeDataProvider.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0A5000010000000000000001 /* ApexlineNotificationBridge */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0A7000020000000000000001 /* Build configuration list for PBXNativeTarget "ApexlineNotificationBridge" */;
+			buildPhases = (
+				0A1400010000000000000001 /* Sources */,
+				0A1300010000000000000001 /* Frameworks */,
+				0A1200010000000000000001 /* Embed App Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				0A1500010000000000000001 /* PBXTargetDependency */,
+			);
+			name = ApexlineNotificationBridge;
+			productName = ApexlineNotificationBridge;
+			productReference = 0A3000010000000000000001 /* ApexlineNotificationBridge.app */;
+			productType = "com.apple.product-type.application";
+		};
+		0A5000020000000000000001 /* ApexlineNotificationBridgeDataProvider */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0A7000050000000000000001 /* Build configuration list for PBXNativeTarget "ApexlineNotificationBridgeDataProvider" */;
+			buildPhases = (
+				0A1400020000000000000001 /* Sources */,
+				0A1300020000000000000001 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ApexlineNotificationBridgeDataProvider;
+			productName = ApexlineNotificationBridgeDataProvider;
+			productReference = 0A3000020000000000000001 /* ApexlineNotificationBridgeDataProvider.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		0A4000010000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2605;
+				LastUpgradeCheck = 2605;
+				TargetAttributes = {
+					0A5000010000000000000001 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					0A5000020000000000000001 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+				};
+			};
+			buildConfigurationList = 0A7000010000000000000001 /* Build configuration list for PBXProject "ApexlineNotificationBridge" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 0A6000010000000000000001;
+			productRefGroup = 0A6000050000000000000001 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				0A5000010000000000000001 /* ApexlineNotificationBridge */,
+				0A5000020000000000000001 /* ApexlineNotificationBridgeDataProvider */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0A1400010000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0A1000010000000000000001 /* ApexlineNotificationBridgeApp.swift in Sources */,
+				0A1000020000000000000001 /* AccessoryForwardingController.swift in Sources */,
+				0A1000030000000000000001 /* ApexlineBridgeAlert.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0A1400020000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0A1000040000000000000001 /* ApexlineBridgeAlert.swift in Sources */,
+				0A1000050000000000000001 /* ApexlineAccessoryDataProvider.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		0A1500010000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0A5000020000000000000001 /* ApexlineNotificationBridgeDataProvider */;
+			targetProxy = 0A1100010000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0A7000100000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		0A7000110000000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		0A7000200000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = App/ApexlineNotificationBridge.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.romanseemann.apexline.bridge;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		0A7000210000000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = App/ApexlineNotificationBridge.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.romanseemann.apexline.bridge;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		0A7000300000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = DataProvider/ApexlineAccessoryDataProvider.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DataProvider/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.romanseemann.apexline.bridge.dataprovider;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		0A7000310000000000000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = DataProvider/ApexlineAccessoryDataProvider.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = DataProvider/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.romanseemann.apexline.bridge.dataprovider;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0A7000010000000000000001 /* Build configuration list for PBXProject "ApexlineNotificationBridge" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0A7000100000000000000001 /* Debug */,
+				0A7000110000000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0A7000020000000000000001 /* Build configuration list for PBXNativeTarget "ApexlineNotificationBridge" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0A7000200000000000000001 /* Debug */,
+				0A7000210000000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0A7000050000000000000001 /* Build configuration list for PBXNativeTarget "ApexlineNotificationBridgeDataProvider" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0A7000300000000000000001 /* Debug */,
+				0A7000310000000000000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 0A4000010000000000000001 /* Project object */;
+}

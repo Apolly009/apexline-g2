@@ -10,12 +10,25 @@ This is not a Bluetooth spoofing path. It uses Apple's iOS 26.5 accessory framew
 
 ## Current Status
 
-This folder is source-ready scaffolding, not a finished App Store target. It still needs:
+This folder now includes an Xcode project for local device testing:
 
-- An Xcode app target and an Accessory Data Provider extension target.
+- Project: `ApexlineNotificationBridge.xcodeproj`
+- Scheme: `ApexlineNotificationBridge`
+- Targets: the iOS companion app plus `ApexlineNotificationBridgeDataProvider.appex`
+
+It still needs:
+
 - Apple Developer entitlements/provisioning for accessory data provider usage.
 - Real hardware validation with Even G2 or a relay accessory.
-- A transport decision for how the native bridge injects the alert into the EvenHub WebView. Apexline now accepts the normalized bridge message through `window.postMessage(...)` or the `apexline-native-bridge` custom event, but a separate iOS app cannot directly access the Even Realities app WebView sandbox.
+- A transport decision for how the native bridge injects the alert into the EvenHub WebView. Apexline accepts the normalized bridge message through `window.postMessage(...)` or the `apexline-native-bridge` custom event, but a separate iOS app cannot directly access the Even Realities app WebView sandbox.
+
+## Run On Phone
+
+1. Open `ios/ApexlineNotificationBridge/ApexlineNotificationBridge.xcodeproj`.
+2. Select the `ApexlineNotificationBridge` scheme.
+3. Select your iPhone as the run destination.
+4. In Signing & Capabilities, choose your Apple Developer team for both targets.
+5. Build and run. If Xcode reports missing Accessory Data Provider entitlements, the Apple Developer account needs that capability enabled before the extension can be installed on-device.
 
 ## Alert Contract
 
