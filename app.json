@@ -13,14 +13,13 @@
     },
     {
       "name": "network",
-      "desc": "Searches destinations, fetches driving routes, loads map tiles, and loads the companion screen visual.",
+      "desc": "Searches destinations, fetches driving routes, and loads map tiles.",
       "whitelist": [
         "https://nominatim.openstreetmap.org",
         "https://router.project-osrm.org",
         "https://a.tile.openstreetmap.org",
         "https://b.tile.openstreetmap.org",
-        "https://c.tile.openstreetmap.org",
-        "https://images.unsplash.com"
+        "https://c.tile.openstreetmap.org"
       ]
     }
   ],

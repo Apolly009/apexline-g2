@@ -77,6 +77,14 @@ The packaged app is written to:
 apexline.ehpk
 ```
 
+Portal upload assets are in:
+
+```text
+release-assets/apexline-icon.png
+release-assets/apexline-background.png
+release-assets/apexline-glasses-home-screenshot.png
+```
+
 ## Map services
 
 - Phone map tiles: OpenStreetMap standard tile servers through Leaflet.
