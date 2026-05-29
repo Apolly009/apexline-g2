@@ -265,7 +265,7 @@ function glassRenderKey(snapshot: GuidanceSnapshot, content: string): string {
     snapshot.showSideRoads ? "side-roads" : "clean",
     snapshot.showSpeed ? snapshot.speedLabel ?? "speed" : "no-speed",
     snapshot.hazardAlert
-      ? `${snapshot.hazardAlert.label}:${snapshot.hazardAlert.distanceLabel}:${snapshot.hazardAlert.speedLimitLabel}:${snapshot.hazardAlert.statusLabel}`
+      ? `${snapshot.hazardAlert.label}:${snapshot.hazardAlert.distanceLabel}:${snapshot.hazardAlert.speedLimitLabel}:${snapshot.hazardAlert.statusLabel}:${snapshot.hazardPulseFrame ?? 0}`
       : "no-hazard",
     snapshot.nightMode ? "night" : "day",
     snapshot.arrowLayout ?? "left-arrow",
@@ -770,18 +770,12 @@ function lerp(start: number, end: number, progress: number): number {
 function drawBlitzerMenu(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot | undefined): void {
   const alert = snapshot?.hazardAlert;
   if (!alert) {
-    drawStandaloneBlitzerSpeed(context, snapshot?.speedLabel ?? "--");
-    drawBlitzerLogo(context, 472, 104, 0.34);
-    context.fillStyle = "rgba(124, 255, 158, 0.62)";
-    context.font = "bold 12px system-ui, sans-serif";
-    context.textAlign = "right";
-    context.fillText("ARMED", 536, 184);
+    drawStandaloneBlitzerStandby(context, snapshot?.speedLabel ?? "--");
     drawTinyHint(context, snapshot?.hint ?? "", 32, 270);
     return;
   }
 
-  drawStandaloneBlitzerSpeed(context, snapshot?.speedLabel ?? alert.currentSpeedLabel ?? "--");
-  drawStandaloneBlitzerWidget(context, alert);
+  drawStandaloneBlitzerAlert(context, alert, snapshot?.hazardPulseFrame ?? 0);
   drawTinyHint(context, snapshot?.hint ?? "", 32, 270);
 }
 
@@ -1121,63 +1115,120 @@ function drawNavigationHazardAlert(
     return;
   }
 
+  drawBlitzerAlertStrip(context, alert, x, y, 154, 34, {
+    muted,
+    pulseFrame: snapshot.hazardPulseFrame ?? 0,
+    compact: true
+  });
+}
+
+function drawStandaloneBlitzerAlert(context: CanvasRenderingContext2D, alert: GuidanceHazardAlert, pulseFrame: number): void {
+  const activePulse = pulseFrame > 0 && pulseFrame < 22;
+  const wave = activePulse ? (Math.sin(pulseFrame * 0.75) + 1) / 2 : 0;
+  const intro = activePulse ? Math.max(0, 1 - pulseFrame / 22) : 0;
+  const scale = 1 + intro * wave * 0.025;
+
   context.save();
-  if (!muted) {
-    context.fillStyle = "rgba(124, 255, 158, 0.08)";
-    context.strokeStyle = "rgba(124, 255, 158, 0.9)";
-    context.lineWidth = 1.5;
-    roundRect(context, x, y, 150, 32, 7);
-    context.fill();
+  context.translate(92, 126);
+  context.scale(scale, scale);
+  context.translate(-92, -126);
+
+  if (activePulse) {
+    context.strokeStyle = `rgba(124, 255, 158, ${0.18 + wave * 0.12})`;
+    context.lineWidth = 1.2;
+    roundRect(context, 52 - wave * 4, 82 - wave * 3, 80 + wave * 8, 94 + wave * 6, 9);
     context.stroke();
   }
 
-  drawSpeedLimitSign(context, x + 20, y + 16, 11, alert.speedLimitValue ?? alert.speedLimitLabel, alert.unitSystem);
-
-  context.fillStyle = muted ? "rgba(221, 255, 227, 0.7)" : HUD_TEXT;
-  context.font = "bold 13px system-ui, sans-serif";
-  context.textAlign = "left";
-  context.fillText(alert.distanceLabel, x + 40, y + 14);
-
-  context.fillStyle = muted ? "rgba(124, 255, 158, 0.62)" : HUD_PRIMARY;
-  context.font = "bold 12px system-ui, sans-serif";
-  context.fillText(alert.currentSpeedLabel ?? "--", x + 40, y + 27);
-  context.restore();
-}
-
-function drawStandaloneBlitzerWidget(context: CanvasRenderingContext2D, alert: GuidanceHazardAlert): void {
-  context.save();
-  context.fillStyle = "rgba(124, 255, 158, 0.08)";
-  context.strokeStyle = "rgba(124, 255, 158, 0.9)";
-  context.lineWidth = 1.6;
-  roundRect(context, 344, 112, 190, 48, 7);
-  context.fill();
-  context.stroke();
-
-  drawSpeedLimitSign(context, 372, 136, 15, alert.speedLimitValue ?? alert.speedLimitLabel, alert.unitSystem);
-
+  drawSpeedLimitSign(context, 92, 116, 22, alert.speedLimitValue ?? alert.speedLimitLabel, alert.unitSystem);
   context.fillStyle = HUD_TEXT;
-  context.font = "bold 16px system-ui, sans-serif";
-  context.textAlign = "left";
-  context.fillText(alert.distanceLabel, 402, 132);
+  context.font = "bold 14px system-ui, sans-serif";
+  context.textAlign = "center";
+  context.fillText(trimImageLine(alert.distanceLabel, 12), 92, 166);
 
   context.fillStyle = HUD_PRIMARY;
-  context.font = "bold 14px system-ui, sans-serif";
-  context.fillText(alert.currentSpeedLabel ?? "--", 402, 150);
+  context.font = "bold 11px system-ui, sans-serif";
+  context.fillText("AHEAD", 92, 181);
   context.restore();
+
+  drawStandaloneBlitzerSpeed(context, alert.currentSpeedLabel ?? "--");
+}
+
+function drawStandaloneBlitzerStandby(context: CanvasRenderingContext2D, speedLabel: string): void {
+  context.save();
+  drawBlitzerLogo(context, 92, 126, 0.24);
+  context.fillStyle = "rgba(124, 255, 158, 0.62)";
+  context.font = "bold 12px system-ui, sans-serif";
+  context.textAlign = "center";
+  context.fillText("ARMED", 92, 176);
+
+  context.restore();
+  drawStandaloneBlitzerSpeed(context, speedLabel);
 }
 
 function drawStandaloneBlitzerSpeed(context: CanvasRenderingContext2D, speedLabel: string): void {
   context.save();
-  context.textAlign = "left";
+  context.textAlign = "right";
   context.fillStyle = HUD_TEXT;
   context.font = "bold 34px system-ui, sans-serif";
-  context.fillText(speedLabel, 42, 138);
-  context.strokeStyle = "rgba(247, 210, 99, 0.82)";
-  context.lineWidth = 2.2;
-  context.beginPath();
-  context.moveTo(42, 152);
-  context.lineTo(122, 152);
+  context.fillText(speedLabel, 534, 138);
+  context.restore();
+}
+
+function drawBlitzerAlertStrip(
+  context: CanvasRenderingContext2D,
+  alert: GuidanceHazardAlert,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  options: { muted?: boolean; pulseFrame?: number; compact?: boolean } = {}
+): void {
+  const frame = options.pulseFrame ?? 0;
+  const activePulse = frame > 0 && frame < 22;
+  const wave = activePulse ? (Math.sin(frame * 0.75) + 1) / 2 : 0;
+  const intro = activePulse ? Math.max(0, 1 - frame / 22) : 0;
+  const glow = intro * (0.05 + wave * 0.08);
+  const scale = 1 + intro * wave * 0.018;
+  const compact = options.compact ?? false;
+  const muted = options.muted ?? false;
+  const centerX = x + width / 2;
+  const centerY = y + height / 2;
+
+  context.save();
+  context.translate(centerX, centerY);
+  context.scale(scale, scale);
+  context.translate(-centerX, -centerY);
+
+  context.fillStyle = muted ? "rgba(124, 255, 158, 0.035)" : `rgba(124, 255, 158, ${0.075 + glow})`;
+  context.strokeStyle = muted ? "rgba(124, 255, 158, 0.36)" : `rgba(124, 255, 158, ${0.72 + intro * 0.2})`;
+  context.lineWidth = compact ? 1.25 : 1.6;
+  roundRect(context, x, y, width, height, compact ? 6 : 7);
+  context.fill();
   context.stroke();
+
+  if (activePulse && !muted) {
+    context.strokeStyle = `rgba(124, 255, 158, ${0.16 + wave * 0.12})`;
+    context.lineWidth = 1;
+    roundRect(context, x - 3 - wave * 3, y - 3 - wave * 2, width + 6 + wave * 6, height + 6 + wave * 4, compact ? 8 : 10);
+    context.stroke();
+  }
+
+  drawSpeedLimitSign(context, x + (compact ? 18 : 26), centerY, compact ? 11 : 16, alert.speedLimitValue ?? alert.speedLimitLabel, alert.unitSystem);
+
+  context.fillStyle = muted ? "rgba(221, 255, 227, 0.68)" : HUD_TEXT;
+  context.font = `bold ${compact ? 12 : 15}px system-ui, sans-serif`;
+  context.textAlign = "left";
+  context.fillText(trimImageLine(alert.distanceLabel, compact ? 10 : 13), x + (compact ? 36 : 54), y + (compact ? 14 : 22));
+
+  context.fillStyle = muted ? "rgba(124, 255, 158, 0.58)" : HUD_PRIMARY;
+  context.font = `bold ${compact ? 10 : 11}px system-ui, sans-serif`;
+  context.fillText(trimImageLine(alert.speedLimitLabel, compact ? 9 : 12), x + (compact ? 36 : 54), y + (compact ? 27 : 39));
+
+  context.fillStyle = muted ? "rgba(221, 255, 227, 0.72)" : HUD_TEXT;
+  context.font = `bold ${compact ? 12 : 16}px system-ui, sans-serif`;
+  context.textAlign = "right";
+  context.fillText(alert.currentSpeedLabel ?? "--", x + width - (compact ? 8 : 12), y + (compact ? 25 : 36));
   context.restore();
 }
 

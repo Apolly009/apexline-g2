@@ -42,6 +42,7 @@ export type GuidanceSnapshot = {
   speedLabel?: string;
   pickerItems?: GuidancePickerItem[];
   hazardAlert?: GuidanceHazardAlert;
+  hazardPulseFrame?: number;
 };
 
 export type PositionSample = {

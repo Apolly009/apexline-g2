@@ -102,6 +102,8 @@ const NIGHT_MODE_STORAGE_KEY = "apexline-night-mode";
 const ARROW_LAYOUT_STORAGE_KEY = "apexline-arrow-layout";
 const BLITZER_ENABLED_STORAGE_KEY = "apexline-blitzer-enabled";
 const BLITZER_ALERT_TTL_MS = 8 * 60 * 1000;
+const BLITZER_PULSE_FRAME_MS = 120;
+const BLITZER_PULSE_FRAMES = 28;
 const GLASSES_SPLASH_MS = 3450;
 const GLASSES_SPLASH_FRAME_MS = 90;
 const GLASSES_HOME_TRANSITION_MS = 650;
@@ -203,6 +205,8 @@ let glassesSplashFrame = 0;
 let glassesHomeTransitionFrame = 0;
 let glassesSplashDurationMs = GLASSES_SPLASH_MS;
 let ignoreGlassInputUntil = 0;
+let blitzerPulseTimer: number | null = null;
+let blitzerPulseFrame = 0;
 
 void boot();
 
@@ -1492,6 +1496,7 @@ function ingestBlitzerAlert(input: BlitzerAlertInput | string, fallbackSource: B
   saveBlitzerEnabled();
   state.blitzerAlert = normalized;
   state.blitzerReportStatus = "Blitzer alert received";
+  startBlitzerPulse();
   void updateGlass();
   render();
   syncDevDebugState();
@@ -1511,9 +1516,37 @@ function simulateDevBlitzerAlert(): void {
 function clearBlitzerAlert(status = "No Blitzer alert"): void {
   state.blitzerAlert = null;
   state.blitzerReportStatus = status;
+  stopBlitzerPulse();
   void updateGlass();
   render();
   syncDevDebugState();
+}
+
+function startBlitzerPulse(): void {
+  stopBlitzerPulse();
+  blitzerPulseFrame = 0;
+  blitzerPulseTimer = window.setInterval(() => {
+    if (!currentBlitzerAlert()) {
+      stopBlitzerPulse();
+      void updateGlass();
+      return;
+    }
+
+    blitzerPulseFrame += 1;
+    void updateGlass();
+    if (blitzerPulseFrame >= BLITZER_PULSE_FRAMES) {
+      stopBlitzerPulse();
+      void updateGlass();
+    }
+  }, BLITZER_PULSE_FRAME_MS);
+}
+
+function stopBlitzerPulse(): void {
+  if (blitzerPulseTimer != null) {
+    window.clearInterval(blitzerPulseTimer);
+    blitzerPulseTimer = null;
+  }
+  blitzerPulseFrame = 0;
 }
 
 function normalizeBlitzerAlertInput(input: BlitzerAlertInput | string, fallbackSource: BlitzerAlert["source"]): BlitzerAlert | null {
@@ -1561,6 +1594,7 @@ function currentBlitzerAlert(): BlitzerAlert | null {
     if (state.blitzerAlert) {
       state.blitzerAlert = null;
       state.blitzerReportStatus = "Blitzer alert expired";
+      stopBlitzerPulse();
     }
     return null;
   }
@@ -2287,7 +2321,8 @@ function withBlitzerAlert(snapshot: GuidanceSnapshot): GuidanceSnapshot {
 
   return {
     ...snapshot,
-    hazardAlert: blitzerDisplayAlert(alert)
+    hazardAlert: blitzerDisplayAlert(alert),
+    hazardPulseFrame: blitzerPulseFrame
   };
 }
 
@@ -2330,6 +2365,7 @@ function homeMenuGlassesSnapshot(): GuidanceSnapshot {
     transitionFrame: homeVariant === "transition" ? glassesHomeTransitionFrame : undefined,
     showControlHints: state.showControlHints,
     hazardAlert: blitzerAlert ? blitzerDisplayAlert(blitzerAlert) : undefined,
+    hazardPulseFrame: blitzerAlert ? blitzerPulseFrame : undefined,
     pickerItems: [
       { label: "Navigation", badge: hasRoute ? "READY" : hasFavorites ? "FAV" : state.position ? "GPS" : "WAIT", selected: state.glassesHomeSelectionIndex === 0 },
       { label: "Blitzer", badge: blitzerAlert ? formatBlitzerDistance(blitzerAlert) : state.blitzerEnabled ? "ARMED" : "OFF", selected: state.glassesHomeSelectionIndex === 1 },
@@ -2353,7 +2389,8 @@ function blitzerGlassesSnapshot(): GuidanceSnapshot {
     offRoute: false,
     speedLabel: formatCurrentSpeed(),
     showControlHints: state.showControlHints,
-    hazardAlert: alert ? blitzerDisplayAlert(alert) : undefined
+    hazardAlert: alert ? blitzerDisplayAlert(alert) : undefined,
+    hazardPulseFrame: alert ? blitzerPulseFrame : undefined
   };
 }
 
