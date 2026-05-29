@@ -20,6 +20,8 @@ heading mode verified.
   - a fresh `lastGlassesImuSample`
   - `lastGlassesImuAgeMs` below 1000 while the glasses are moving
   - a plausible `glassesHeadingDegrees`
+  - phone heading status from `webkitCompassHeading` or an absolute orientation
+    event, not relative-only `alpha`
 - In simulator/dev mode, use `window.__apexlineDevGlassImu({ z: 45 })` or the
   launch flags `phoneHeading=90&glassesImuBase=0&glassesImuZ=45` to exercise the
   same yaw math without hardware.

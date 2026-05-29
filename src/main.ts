@@ -59,6 +59,7 @@ type AppState = {
   route: RouteResult | null;
   position: PositionSample | null;
   phoneHeadingDegrees: number | null;
+  phoneHeadingAccuracyDegrees: number | null;
   phoneHeadingStatus: string;
   lastPhoneHeadingAt: number;
   glassesHeadingDegrees: number | null;
@@ -129,6 +130,7 @@ const state: AppState = {
   route: null,
   position: null,
   phoneHeadingDegrees: null,
+  phoneHeadingAccuracyDegrees: null,
   phoneHeadingStatus: "Travel heading",
   lastPhoneHeadingAt: 0,
   glassesHeadingDegrees: null,
@@ -248,6 +250,7 @@ function devDebugSnapshot(): Record<string, unknown> {
     guidanceView: state.guidanceView,
     headingSource: state.headingSource,
     headingStatus: headingStatusSummary(),
+    phoneHeadingAccuracyDegrees: state.phoneHeadingAccuracyDegrees,
     glassesHeadingDegrees: state.glassesHeadingDegrees,
     glassesImuBaseZ: state.glassesImuBaseZ,
     lastGlassesImuSample: state.lastGlassesImuSample,
@@ -341,6 +344,7 @@ function applyLaunchOptions(): void {
   const phoneHeading = Number(params.get("phoneHeading"));
   if (Number.isFinite(phoneHeading)) {
     state.phoneHeadingDegrees = normalizeDegrees(phoneHeading);
+    state.phoneHeadingAccuracyDegrees = 0;
     state.lastPhoneHeadingAt = Date.now();
     state.phoneHeadingStatus = "Dev phone compass";
   }
@@ -1469,11 +1473,19 @@ function headingStatusSummary(): string {
 
   if (state.headingSource === "phone") {
     const heading = currentPhoneHeadingDegrees();
-    return heading == null ? state.phoneHeadingStatus : `${state.phoneHeadingStatus} ${Math.round(heading)} deg`;
+    return heading == null ? state.phoneHeadingStatus : `${state.phoneHeadingStatus} ${Math.round(heading)} deg${headingAccuracyLabel()}`;
   }
 
   const heading = currentGlassesFacingHeadingDegrees(state.position ?? undefined);
-  return heading == null ? state.glassesHeadingStatus : `${state.glassesHeadingStatus} ${Math.round(heading)} deg`;
+  return heading == null ? state.glassesHeadingStatus : `${state.glassesHeadingStatus} ${Math.round(heading)} deg${headingAccuracyLabel()}`;
+}
+
+function headingAccuracyLabel(): string {
+  if (state.phoneHeadingAccuracyDegrees == null || state.headingSource === "travel") {
+    return "";
+  }
+
+  return ` / ${Math.round(state.phoneHeadingAccuracyDegrees)} deg acc`;
 }
 
 async function startPhoneHeadingTracking(requestPermission: boolean): Promise<void> {
@@ -1516,6 +1528,7 @@ async function startPhoneHeadingTracking(requestPermission: boolean): Promise<vo
 
   if (!phoneHeadingListenerBound) {
     window.addEventListener("deviceorientation", handleDeviceOrientation, true);
+    window.addEventListener("deviceorientationabsolute", handleDeviceOrientation, true);
     phoneHeadingListenerBound = true;
   }
 
@@ -1525,16 +1538,18 @@ async function startPhoneHeadingTracking(requestPermission: boolean): Promise<vo
 }
 
 function handleDeviceOrientation(event: DeviceOrientationEvent): void {
-  const heading = headingFromDeviceOrientation(event);
-  if (heading == null) {
-    state.phoneHeadingStatus = "Phone compass unavailable";
+  const headingSample = headingFromDeviceOrientation(event);
+  if (!headingSample) {
+    state.phoneHeadingStatus = "Phone compass needs absolute heading";
+    state.phoneHeadingAccuracyDegrees = null;
     updateStatsCard();
     return;
   }
 
-  state.phoneHeadingDegrees = smoothHeadingDegrees(state.phoneHeadingDegrees, heading, 0.24);
+  state.phoneHeadingDegrees = smoothHeadingDegrees(state.phoneHeadingDegrees, headingSample.heading, 0.24);
+  state.phoneHeadingAccuracyDegrees = headingSample.accuracy;
   state.lastPhoneHeadingAt = Date.now();
-  state.phoneHeadingStatus = "Phone compass";
+  state.phoneHeadingStatus = headingSample.source === "webkit" ? "Phone compass" : "Absolute phone heading";
 
   if (state.navigating && (state.headingSource === "phone" || state.headingSource === "glasses")) {
     void updateGlass();
@@ -1542,17 +1557,34 @@ function handleDeviceOrientation(event: DeviceOrientationEvent): void {
   updateStatsCard();
 }
 
-function headingFromDeviceOrientation(event: DeviceOrientationEvent): number | null {
+function headingFromDeviceOrientation(event: DeviceOrientationEvent): { heading: number; accuracy: number | null; source: "webkit" | "absolute" } | null {
   const compassEvent = event as DeviceOrientationEvent & {
     webkitCompassHeading?: number;
+    webkitCompassAccuracy?: number;
   };
 
   if (typeof compassEvent.webkitCompassHeading === "number" && Number.isFinite(compassEvent.webkitCompassHeading)) {
-    return normalizeDegrees(compassEvent.webkitCompassHeading);
+    const accuracy = typeof compassEvent.webkitCompassAccuracy === "number" && Number.isFinite(compassEvent.webkitCompassAccuracy)
+      ? compassEvent.webkitCompassAccuracy
+      : null;
+    if (accuracy != null && accuracy > 45) {
+      state.phoneHeadingStatus = "Phone compass low accuracy";
+      return null;
+    }
+
+    return {
+      heading: normalizeDegrees(compassEvent.webkitCompassHeading),
+      accuracy,
+      source: "webkit"
+    };
   }
 
-  if (typeof event.alpha === "number" && Number.isFinite(event.alpha)) {
-    return normalizeDegrees(360 - event.alpha);
+  if (event.absolute === true && typeof event.alpha === "number" && Number.isFinite(event.alpha)) {
+    return {
+      heading: normalizeDegrees(360 - event.alpha),
+      accuracy: null,
+      source: "absolute"
+    };
   }
 
   return null;

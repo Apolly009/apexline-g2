@@ -27,7 +27,8 @@ guidance tuned for motorcycle and spirited car use.
 - Experimental heading modes: Arrow and Map guidance can use phone compass
   heading, or a G2-facing mode that anchors to the phone/GPS course and applies
   bounded relative G2 IMU yaw deltas when the SDK provides them. If heading data
-  is unavailable or stale, guidance falls back to GPS course/travel heading.
+  is unavailable, stale, relative-only, or low accuracy, guidance falls back to
+  GPS course/travel heading.
 - Supports glasses/ring input:
   - Startup screen: click opens Choose Favorites when favorites are available.
   - Favorite picker: swipe up/down cycles saved places, click selects the
@@ -110,6 +111,11 @@ calibrated magnetometer/compass heading. G2-facing heading therefore uses the
 phone compass or GPS course as the absolute anchor, then applies bounded
 relative G2 IMU yaw deltas only when data is present. Raw G2 IMU-only heading is
 intentionally avoided because it would drift without a magnetic or phone/GPS
+anchor.
+
+Phone compass anchoring only accepts Safari `webkitCompassHeading` or
+standards-based device orientation events where `absolute === true`; relative
+orientation `alpha` is ignored because it is not a stable magnetic/course
 anchor.
 
 If location does not lock, press "Use current location" after confirming the
