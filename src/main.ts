@@ -361,6 +361,10 @@ function render(): void {
         <p class="location-note">${escapeHtml(state.locationStatus)}</p>
       </section>
 
+      <section class="panel favorites-panel" aria-label="Favorite places">
+        ${renderFavoritesManager()}
+      </section>
+
       <section class="dashboard">
         <article class="guidance-card" id="guidance-card">
           ${renderGuidancePanel()}
@@ -441,6 +445,37 @@ function renderSettingsMenu(): string {
         </label>
       </div>
     </div>
+  `;
+}
+
+function renderFavoritesManager(): string {
+  return `
+    <div class="favorites-header">
+      <div>
+        <span>Favorites</span>
+        <strong>Saved places</strong>
+      </div>
+      <p>One shared list for start and destination.</p>
+    </div>
+    ${state.favorites.length === 0 ? `
+      <p class="favorites-empty">Save a start or destination to route from the phone or glasses.</p>
+    ` : `
+      <div class="favorites-manager-list">
+        ${state.favorites.map((favorite) => `
+          <article class="favorite-manager-item">
+            <div>
+              <strong>${escapeHtml(favorite.label)}</strong>
+              <span>${favorite.coordinate.lat.toFixed(5)}, ${favorite.coordinate.lon.toFixed(5)}</span>
+            </div>
+            <div class="favorite-manager-actions">
+              <button type="button" data-favorite-origin-id="${favorite.id}">Start</button>
+              <button type="button" data-favorite-destination-id="${favorite.id}">Destination</button>
+              <button class="danger-text" type="button" data-favorite-remove-id="${favorite.id}">Remove</button>
+            </div>
+          </article>
+        `).join("")}
+      </div>
+    `}
   `;
 }
 
@@ -997,6 +1032,14 @@ function bindFavoriteEvents(): void {
       void updateGlass();
     });
   });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-favorite-remove-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      removeFavorite(button.dataset.favoriteRemoveId);
+      render();
+      void updateGlass();
+    });
+  });
 }
 
 function findFavorite(id: string | undefined): PlaceResult | null {
@@ -1010,6 +1053,21 @@ function toggleFavorite(place: PlaceResult): void {
     state.favorites = [normalizeFavorite(place), ...state.favorites].slice(0, 20);
   }
 
+  normalizeFavoriteIndexes();
+  saveFavorites();
+}
+
+function removeFavorite(id: string | undefined): void {
+  if (!id) {
+    return;
+  }
+
+  state.favorites = state.favorites.filter((favorite) => favorite.id !== id);
+  normalizeFavoriteIndexes();
+  saveFavorites();
+}
+
+function normalizeFavoriteIndexes(): void {
   if (state.glassesFavoriteIndex >= state.favorites.length) {
     state.glassesFavoriteIndex = Math.max(0, state.favorites.length - 1);
   }
@@ -1019,8 +1077,6 @@ function toggleFavorite(place: PlaceResult): void {
   if (state.glassesDestinationFavoriteIndex >= state.favorites.length) {
     state.glassesDestinationFavoriteIndex = Math.max(0, state.favorites.length - 1);
   }
-
-  saveFavorites();
 }
 
 function isFavorite(place: PlaceResult): boolean {

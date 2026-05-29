@@ -366,7 +366,7 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
   context.fillStyle = HUD_MUTED;
   context.font = "12px system-ui, sans-serif";
   context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 24), 328, 72);
-  drawSpeedReadout(context, snapshot, 456, 232, "right");
+  drawSpeedReadout(context, snapshot, 548, 264, "right");
 }
 
 function drawIdleImage(
@@ -655,6 +655,15 @@ function drawSpeedReadout(
   context.fillStyle = HUD_TEXT;
   context.font = "bold 16px system-ui, sans-serif";
   context.textAlign = align;
+  const metrics = context.measureText(snapshot.speedLabel);
+  const width = metrics.width + 20;
+  const height = 26;
+  const rectX = align === "right" ? x - width : align === "center" ? x - width / 2 : x;
+  const rectY = y - 20;
+  context.fillStyle = "rgba(0, 0, 0, 0.72)";
+  roundRect(context, rectX, rectY, width, height, 6);
+  context.fill();
+  context.fillStyle = HUD_TEXT;
   context.fillText(snapshot.speedLabel, x, y);
 }
 
