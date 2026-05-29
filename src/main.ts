@@ -1,5 +1,5 @@
 import { makeGuidanceSnapshot, makeIdleSnapshot, type GuidanceSnapshot, type PositionSample } from "./guidance";
-import { GlassDisplay } from "./glasses";
+import { GlassDisplay, type GlassImuSample } from "./glasses";
 import L, { type LatLngExpression, type Map as LeafletMap } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -22,7 +22,7 @@ type AppState = {
   mode: TravelMode;
   unitSystem: UnitSystem;
   guidanceView: "arrows" | "map";
-  headingSource: "travel" | "phone";
+  headingSource: "travel" | "phone" | "glasses";
   showSideRoads: boolean;
   showSpeed: boolean;
   showControlHints: boolean;
@@ -61,6 +61,11 @@ type AppState = {
   phoneHeadingDegrees: number | null;
   phoneHeadingStatus: string;
   lastPhoneHeadingAt: number;
+  glassesHeadingDegrees: number | null;
+  glassesHeadingStatus: string;
+  glassesImuBaseZ: number | null;
+  glassesHeadingAnchorDegrees: number | null;
+  lastGlassesImuAt: number;
   locationSource: "gps" | "manual" | "simulated" | null;
   locationStatus: string;
   nextStepIndex: number;
@@ -125,6 +130,11 @@ const state: AppState = {
   phoneHeadingDegrees: null,
   phoneHeadingStatus: "Travel heading",
   lastPhoneHeadingAt: 0,
+  glassesHeadingDegrees: null,
+  glassesHeadingStatus: "Waiting for G2 motion",
+  glassesImuBaseZ: null,
+  glassesHeadingAnchorDegrees: null,
+  lastGlassesImuAt: 0,
   locationSource: null,
   locationStatus: "No location yet",
   nextStepIndex: 0,
@@ -168,6 +178,7 @@ let titleTapCount = 0;
 let titleTapResetTimer: number | null = null;
 let devGlassesKeyboardBound = false;
 let phoneHeadingListenerBound = false;
+let devGlassesHeadingOverrideAt = 0;
 
 void boot();
 
@@ -175,8 +186,8 @@ async function boot(): Promise<void> {
   applyLaunchOptions();
   installDevGlassHarness();
   render();
-  state.bridgeConnected = await glassDisplay.connect(handleGlassInput);
-  if (state.headingSource === "phone") {
+  state.bridgeConnected = await glassDisplay.connect(handleGlassInput, handleGlassesImu);
+  if (state.headingSource === "phone" || state.headingSource === "glasses") {
     void startPhoneHeadingTracking(false);
   }
   await updateGlass();
@@ -218,6 +229,8 @@ function devDebugSnapshot(): Record<string, unknown> {
     devToolsEnabled: state.devToolsEnabled,
     glassesScreen: state.glassesScreen,
     guidanceView: state.guidanceView,
+    headingSource: state.headingSource,
+    headingStatus: headingStatusSummary(),
     mode: state.mode,
     unitSystem: state.unitSystem,
     showSideRoads: state.showSideRoads,
@@ -271,7 +284,7 @@ function applyLaunchOptions(): void {
   }
 
   const heading = params.get("heading");
-  if (heading === "travel" || heading === "phone") {
+  if (heading === "travel" || heading === "phone" || heading === "glasses") {
     state.headingSource = heading;
     saveHeadingSource();
   }
@@ -281,6 +294,14 @@ function applyLaunchOptions(): void {
     state.phoneHeadingDegrees = normalizeDegrees(phoneHeading);
     state.lastPhoneHeadingAt = Date.now();
     state.phoneHeadingStatus = "Dev phone compass";
+  }
+
+  const glassesHeading = Number(params.get("glassesHeading"));
+  if (Number.isFinite(glassesHeading)) {
+    state.glassesHeadingDegrees = normalizeDegrees(glassesHeading);
+    state.lastGlassesImuAt = Date.now();
+    devGlassesHeadingOverrideAt = Date.now();
+    state.glassesHeadingStatus = "Dev G2 facing";
   }
 
   if (params.has("sideRoads")) {
@@ -484,10 +505,11 @@ function renderSettingsMenu(): string {
           <div class="segmented-row" role="group" aria-label="HUD heading source">
             <button class="heading-mode ${state.headingSource === "travel" ? "active" : ""}" data-heading-source="travel" type="button">Travel</button>
             <button class="heading-mode ${state.headingSource === "phone" ? "active" : ""}" data-heading-source="phone" type="button">Phone compass</button>
+            <button class="heading-mode ${state.headingSource === "glasses" ? "active" : ""}" data-heading-source="glasses" type="button">G2 facing</button>
           </div>
-          ${state.headingSource === "phone" ? `
+          ${state.headingSource === "phone" || state.headingSource === "glasses" ? `
             <button class="settings-action" data-enable-phone-heading type="button">Enable phone compass</button>
-            <span class="setting-note">${escapeHtml(state.phoneHeadingStatus)}</span>
+            <span class="setting-note">${escapeHtml(headingStatusSummary())}</span>
           ` : `<span class="setting-note">Uses GPS course or simulated route heading.</span>`}
         </div>
         <label class="setting-toggle">
@@ -822,10 +844,11 @@ function bindEvents(): void {
     button.addEventListener("click", () => {
       state.headingSource = button.dataset.headingSource as AppState["headingSource"];
       saveHeadingSource();
-      if (state.headingSource === "phone") {
+      if (state.headingSource === "phone" || state.headingSource === "glasses") {
         void startPhoneHeadingTracking(false);
       } else {
         state.phoneHeadingStatus = "Travel heading";
+        state.glassesHeadingStatus = "Waiting for G2 motion";
       }
       void updateGlass();
       render();
@@ -1238,7 +1261,8 @@ function saveUnitSystem(): void {
 }
 
 function loadHeadingSource(): AppState["headingSource"] {
-  return window.localStorage.getItem(HEADING_SOURCE_STORAGE_KEY) === "phone" ? "phone" : "travel";
+  const stored = window.localStorage.getItem(HEADING_SOURCE_STORAGE_KEY);
+  return stored === "phone" || stored === "glasses" ? stored : "travel";
 }
 
 function saveHeadingSource(): void {
@@ -1293,33 +1317,110 @@ function currentPhoneHeadingDegrees(): number | null {
   return state.phoneHeadingDegrees;
 }
 
+function currentHeadingAnchorDegrees(position?: PositionSample): number | null {
+  return currentPhoneHeadingDegrees() ?? position?.headingDegrees ?? null;
+}
+
+function currentGlassesFacingHeadingDegrees(position?: PositionSample): number | null {
+  if (devGlassesHeadingOverrideAt > 0 && state.glassesHeadingDegrees != null) {
+    return state.glassesHeadingDegrees;
+  }
+
+  if (state.glassesHeadingDegrees != null && Date.now() - state.lastGlassesImuAt <= 3000) {
+    return state.glassesHeadingDegrees;
+  }
+
+  const anchor = currentHeadingAnchorDegrees(position);
+  if (anchor != null) {
+    state.glassesHeadingStatus = state.lastGlassesImuAt > 0 ? "G2 anchor fallback" : "G2 waiting for motion";
+    return anchor;
+  }
+
+  state.glassesHeadingStatus = "G2 needs compass/GPS";
+  return null;
+}
+
+function handleGlassesImu(sample: GlassImuSample): void {
+  const anchor = currentHeadingAnchorDegrees(state.position ?? undefined);
+  const now = Date.now();
+  const staleImu = now - state.lastGlassesImuAt > 15000;
+
+  if (state.glassesImuBaseZ == null || state.glassesHeadingAnchorDegrees == null || staleImu) {
+    state.glassesImuBaseZ = sample.z;
+    state.glassesHeadingAnchorDegrees = anchor ?? state.glassesHeadingDegrees ?? 0;
+    state.glassesHeadingDegrees = state.glassesHeadingAnchorDegrees;
+    state.lastGlassesImuAt = sample.timestamp;
+    state.glassesHeadingStatus = anchor == null ? "G2 relative only" : "G2 facing";
+    updateStatsCard();
+    return;
+  }
+
+  if (anchor != null) {
+    state.glassesHeadingAnchorDegrees = smoothHeadingDegrees(state.glassesHeadingAnchorDegrees, anchor, 0.035);
+  }
+
+  const yawDelta = imuYawDeltaDegrees(sample.z, state.glassesImuBaseZ);
+  if (Math.abs(yawDelta) > 160) {
+    state.glassesImuBaseZ = sample.z;
+    state.glassesHeadingAnchorDegrees = anchor ?? state.glassesHeadingDegrees ?? state.glassesHeadingAnchorDegrees;
+    state.glassesHeadingDegrees = state.glassesHeadingAnchorDegrees;
+    state.lastGlassesImuAt = sample.timestamp;
+    state.glassesHeadingStatus = "G2 re-anchored";
+  } else {
+    const heading = normalizeDegrees(state.glassesHeadingAnchorDegrees + yawDelta);
+    state.glassesHeadingDegrees = smoothHeadingDegrees(state.glassesHeadingDegrees, heading, 0.22);
+    state.lastGlassesImuAt = sample.timestamp;
+    state.glassesHeadingStatus = "G2 facing";
+  }
+
+  if (state.navigating && state.headingSource === "glasses") {
+    void updateGlass();
+  }
+  updateStatsCard();
+}
+
+function imuYawDeltaDegrees(currentZ: number, baseZ: number): number {
+  const rawDelta = currentZ - baseZ;
+  const deltaDegrees = Math.abs(rawDelta) <= Math.PI * 2 ? rawDelta * 180 / Math.PI : rawDelta;
+  return normalizeSignedDegrees(deltaDegrees);
+}
+
 function positionForGuidance(position: PositionSample): PositionSample {
-  if (state.headingSource !== "phone") {
+  if (state.headingSource === "travel") {
     return position;
   }
 
-  const phoneHeading = currentPhoneHeadingDegrees();
-  if (phoneHeading == null) {
+  const heading = state.headingSource === "phone"
+    ? currentPhoneHeadingDegrees()
+    : currentGlassesFacingHeadingDegrees(position);
+  if (heading == null) {
     return position;
   }
 
   return {
     ...position,
-    headingDegrees: phoneHeading
+    headingDegrees: heading
   };
 }
 
 function headingStatusSummary(): string {
-  if (state.headingSource !== "phone") {
+  if (state.headingSource === "travel") {
     return "travel heading";
   }
 
-  const heading = currentPhoneHeadingDegrees();
-  return heading == null ? state.phoneHeadingStatus : `${state.phoneHeadingStatus} ${Math.round(heading)} deg`;
+  if (state.headingSource === "phone") {
+    const heading = currentPhoneHeadingDegrees();
+    return heading == null ? state.phoneHeadingStatus : `${state.phoneHeadingStatus} ${Math.round(heading)} deg`;
+  }
+
+  const heading = currentGlassesFacingHeadingDegrees(state.position ?? undefined);
+  return heading == null ? state.glassesHeadingStatus : `${state.glassesHeadingStatus} ${Math.round(heading)} deg`;
 }
 
 async function startPhoneHeadingTracking(requestPermission: boolean): Promise<void> {
-  state.headingSource = "phone";
+  if (state.headingSource === "travel") {
+    state.headingSource = "phone";
+  }
   saveHeadingSource();
 
   const orientationConstructor = window.DeviceOrientationEvent as
@@ -1376,7 +1477,7 @@ function handleDeviceOrientation(event: DeviceOrientationEvent): void {
   state.lastPhoneHeadingAt = Date.now();
   state.phoneHeadingStatus = "Phone compass";
 
-  if (state.navigating && state.headingSource === "phone") {
+  if (state.navigating && (state.headingSource === "phone" || state.headingSource === "glasses")) {
     void updateGlass();
   }
   updateStatsCard();
@@ -1409,6 +1510,10 @@ function smoothHeadingDegrees(previous: number | null, next: number, ratio: numb
 
 function normalizeDegrees(degrees: number): number {
   return ((degrees % 360) + 360) % 360;
+}
+
+function normalizeSignedDegrees(degrees: number): number {
+  return ((((degrees % 360) + 540) % 360) - 180);
 }
 
 function scheduleSearch(): void {
@@ -2390,11 +2495,16 @@ function glassesSettings(): Array<{ label: string; value: () => string; toggle: 
     },
     {
       label: "Heading",
-      value: () => state.headingSource === "phone" ? "Phone compass" : "Travel course",
+      value: () => {
+        if (state.headingSource === "glasses") {
+          return "G2 facing";
+        }
+        return state.headingSource === "phone" ? "Phone compass" : "Travel course";
+      },
       toggle: () => {
-        state.headingSource = state.headingSource === "phone" ? "travel" : "phone";
+        state.headingSource = nextHeadingSource();
         saveHeadingSource();
-        if (state.headingSource === "phone") {
+        if (state.headingSource === "phone" || state.headingSource === "glasses") {
           void startPhoneHeadingTracking(false);
         } else {
           state.phoneHeadingStatus = "Travel heading";
@@ -2426,6 +2536,16 @@ function glassesSettings(): Array<{ label: string; value: () => string; toggle: 
       }
     }
   ];
+}
+
+function nextHeadingSource(): AppState["headingSource"] {
+  if (state.headingSource === "travel") {
+    return "phone";
+  }
+  if (state.headingSource === "phone") {
+    return "glasses";
+  }
+  return "travel";
 }
 
 function glassesFavoriteOptions(): PlaceResult[] {

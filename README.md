@@ -24,15 +24,15 @@ guidance tuned for motorcycle and spirited car use.
   the glasses.
 - Shows current speed during active guidance when the Speed display setting is
   enabled.
-- Experimental heading branch: can render Arrow and Map guidance from a phone
-  compass heading source when the phone/browser grants device-orientation
-  permission. If phone compass data is unavailable or stale, guidance falls
-  back to GPS course/travel heading.
+- Experimental heading modes: Arrow and Map guidance can use phone compass
+  heading, or a G2-facing mode that anchors to the phone/GPS course and applies
+  bounded relative G2 IMU yaw deltas when the SDK provides them. If heading data
+  is unavailable or stale, guidance falls back to GPS course/travel heading.
 - Supports glasses/ring input:
   - Startup screen: click opens Choose Favorites when favorites are available.
   - Favorite picker: swipe up/down cycles saved places, click selects the
     start or finish, double press backs out.
-  - Route-ready screen: swipe down starts navigation.
+  - Route-ready screen: click starts navigation.
   - Active navigation: double press stops navigation and returns to the top
     screen.
   - Long press opens compact glasses settings for guidance view, ride mode,
@@ -64,6 +64,8 @@ Developer tools are hidden in the normal phone UI. Tap the Apexline title five
 times to toggle them for the current session, or open with `?devTools=1`.
 They reset to hidden on every fresh app load. Dev launch flags remain available
 for simulator testing, for example `?devRoute=1&view=map&autoDrive=1`.
+Heading test flags include `?heading=phone&phoneHeading=90` and
+`?heading=glasses&glassesHeading=90`.
 With dev tools enabled, the phone/browser window also accepts keyboard gesture
 testing: Enter is click, ArrowUp/ArrowDown are swipes, D or Escape is double
 press, and L is long press.
@@ -100,10 +102,11 @@ when testing. Full turn-by-turn behavior needs a phone/G2 test because the app
 depends on the phone WebView location stream and Even bridge delivery.
 
 The public Even Hub SDK currently exposes G2 IMU samples as `x/y/z`, but not a
-calibrated magnetometer/compass heading. The experimental heading branch
-therefore uses the phone compass as the absolute heading anchor. Raw G2 IMU-only
-heading is intentionally avoided because it would drift without a magnetic or
-phone/GPS anchor.
+calibrated magnetometer/compass heading. G2-facing heading therefore uses the
+phone compass or GPS course as the absolute anchor, then applies bounded
+relative G2 IMU yaw deltas only when data is present. Raw G2 IMU-only heading is
+intentionally avoided because it would drift without a magnetic or phone/GPS
+anchor.
 
 If location does not lock, press "Use current location" after confirming the
 Even Realities app has Location permission in iOS/Android settings. For simulator
