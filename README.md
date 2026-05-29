@@ -64,8 +64,9 @@ Developer tools are hidden in the normal phone UI. Tap the Apexline title five
 times to toggle them for the current session, or open with `?devTools=1`.
 They reset to hidden on every fresh app load. Dev launch flags remain available
 for simulator testing, for example `?devRoute=1&view=map&autoDrive=1`.
-Heading test flags include `?heading=phone&phoneHeading=90` and
-`?heading=glasses&glassesHeading=90`.
+Heading test flags include `?heading=phone&phoneHeading=90`,
+`?heading=glasses&glassesHeading=90`, and
+`?heading=glasses&phoneHeading=90&glassesImuBase=0&glassesImuZ=45`.
 With dev tools enabled, the phone/browser window also accepts keyboard gesture
 testing: Enter is click, ArrowUp/ArrowDown are swipes, D or Escape is double
 press, and L is long press.

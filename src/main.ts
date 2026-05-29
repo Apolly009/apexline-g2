@@ -205,6 +205,7 @@ async function boot(): Promise<void> {
 function installDevGlassHarness(): void {
   const devWindow = window as Window & {
     __apexlineDevGlassInput?: (action: GlassAction) => void;
+    __apexlineDevGlassImu?: (sample: number | Partial<GlassImuSample>) => void;
     __apexlineDebugState?: () => Record<string, unknown>;
   };
 
@@ -215,6 +216,13 @@ function installDevGlassHarness(): void {
 
     runDevGlassInput(action);
   };
+  devWindow.__apexlineDevGlassImu = (sample) => {
+    if (!state.devToolsEnabled) {
+      return;
+    }
+
+    runDevGlassImu(sample);
+  };
   devWindow.__apexlineDebugState = devDebugSnapshot;
   document.addEventListener("apexline-dev-glass-input", (event) => {
     const action = (event as CustomEvent<unknown>).detail;
@@ -223,6 +231,13 @@ function installDevGlassHarness(): void {
     }
 
     runDevGlassInput(action);
+  });
+  document.addEventListener("apexline-dev-glass-imu", (event) => {
+    if (!state.devToolsEnabled) {
+      return;
+    }
+
+    runDevGlassImu((event as CustomEvent<unknown>).detail as number | Partial<GlassImuSample>);
   });
 }
 
@@ -263,6 +278,34 @@ function runDevGlassInput(action: GlassAction): void {
   handleGlassInput(action);
   syncDevDebugState();
   window.setTimeout(syncDevDebugState, 0);
+}
+
+function runDevGlassImu(sample: number | Partial<GlassImuSample>): void {
+  const imuSample = normalizeDevGlassImuSample(sample);
+  if (!imuSample) {
+    return;
+  }
+
+  handleGlassesImu(imuSample);
+  syncDevDebugState();
+  window.setTimeout(syncDevDebugState, 0);
+}
+
+function normalizeDevGlassImuSample(sample: number | Partial<GlassImuSample>): GlassImuSample | null {
+  const candidate = typeof sample === "number" ? { z: sample } : sample;
+  const x = Number(candidate.x ?? 0);
+  const y = Number(candidate.y ?? 0);
+  const z = Number(candidate.z);
+  if (![x, y, z].every(Number.isFinite)) {
+    return null;
+  }
+
+  return {
+    x,
+    y,
+    z,
+    timestamp: Number.isFinite(candidate.timestamp) ? Number(candidate.timestamp) : Date.now()
+  };
 }
 
 function isGlassAction(action: unknown): action is GlassAction {
@@ -308,6 +351,14 @@ function applyLaunchOptions(): void {
     state.lastGlassesImuAt = Date.now();
     devGlassesHeadingOverrideAt = Date.now();
     state.glassesHeadingStatus = "Dev G2 facing";
+  }
+
+  const glassesImuBase = Number(params.get("glassesImuBase"));
+  const glassesImuZ = Number(params.get("glassesImuZ"));
+  if (Number.isFinite(glassesImuBase) && Number.isFinite(glassesImuZ)) {
+    const now = Date.now();
+    handleGlassesImu({ x: 0, y: 0, z: glassesImuBase, timestamp: now });
+    handleGlassesImu({ x: 0, y: 0, z: glassesImuZ, timestamp: now + 16 });
   }
 
   if (params.has("sideRoads")) {
@@ -1350,6 +1401,7 @@ function handleGlassesImu(sample: GlassImuSample): void {
   const anchor = currentHeadingAnchorDegrees(state.position ?? undefined);
   const now = Date.now();
   const staleImu = now - state.lastGlassesImuAt > 15000;
+  devGlassesHeadingOverrideAt = 0;
   state.lastGlassesImuSample = sample;
 
   if (state.glassesImuBaseZ == null || state.glassesHeadingAnchorDegrees == null || staleImu) {

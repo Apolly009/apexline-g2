@@ -20,6 +20,9 @@ heading mode verified.
   - a fresh `lastGlassesImuSample`
   - `lastGlassesImuAgeMs` below 1000 while the glasses are moving
   - a plausible `glassesHeadingDegrees`
+- In simulator/dev mode, use `window.__apexlineDevGlassImu({ z: 45 })` or the
+  launch flags `phoneHeading=90&glassesImuBase=0&glassesImuZ=45` to exercise the
+  same yaw math without hardware.
 - Rotate the glasses left and right while the phone stays still.
 - Confirm Arrow mode and Map mode rotate relative to where the glasses face.
 - Confirm the route does not jump, blink, or trigger click/swipe actions during
