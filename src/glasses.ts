@@ -353,7 +353,7 @@ function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSna
     return;
   }
 
-  drawHudHeader(context, snapshot);
+  drawHudHint(context, snapshot);
   drawRouteCue(context, snapshot, 44, 58, 168, 180);
 
   context.fillStyle = HUD_TEXT;
@@ -371,7 +371,7 @@ function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSna
   context.fillStyle = HUD_TEXT;
   context.font = "bold 17px system-ui, sans-serif";
   context.fillText(formatPrimaryAction(snapshot.primary, snapshot.arrow), 534, 152);
-  drawHudSpeedValue(context, snapshot, 534, 178, "right");
+  drawHudSpeedValue(context, snapshot, 534, 202, "right");
 
   context.fillStyle = HUD_MUTED;
   context.font = "bold 12px system-ui, sans-serif";
@@ -381,7 +381,7 @@ function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSna
   context.fillStyle = HUD_PRIMARY;
   context.font = "bold 13px system-ui, sans-serif";
   context.textAlign = "right";
-  context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 24), 534, 240);
+  context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 24), 534, 252);
 }
 
 function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
@@ -413,15 +413,20 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
   context.font = "bold 16px system-ui, sans-serif";
   context.textAlign = "right";
   context.fillText(formatPrimaryAction(snapshot.primary, snapshot.arrow), 534, 152);
-  drawHudSpeedValue(context, snapshot, 534, 178, "right");
+  drawHudSpeedValue(context, snapshot, 534, 202, "right");
 
   context.fillStyle = HUD_MUTED;
   context.font = "bold 11px system-ui, sans-serif";
-  context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 24), 534, 198);
+  context.textAlign = "left";
+  context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 22), 42, 252);
+
+  context.fillStyle = HUD_PRIMARY;
+  context.font = "bold 13px system-ui, sans-serif";
+  context.textAlign = "right";
+  context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 24), 534, 252);
 }
 
 function drawNightArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
-  drawNightModeLabel(context, snapshot);
   context.save();
   context.globalAlpha = 0.58;
   drawRouteCue(context, snapshot, 70, 76, 128, 144, true);
@@ -430,7 +435,6 @@ function drawNightArrowImage(context: CanvasRenderingContext2D, snapshot: Guidan
 }
 
 function drawNightMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
-  drawNightModeLabel(context, snapshot);
   context.save();
   context.globalAlpha = 0.62;
   drawPreviewRoute(context, snapshot, 118, 70, 340, 178, true, true);
@@ -727,28 +731,14 @@ function wrapMenuText(
   });
 }
 
-function drawHudHeader(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
+function drawHudHint(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
+  if (!snapshot.hint) {
+    return;
+  }
   context.fillStyle = HUD_MUTED;
-  context.font = "bold 13px system-ui, sans-serif";
-  context.textAlign = "left";
-  context.fillText(snapshot.title.replace("Apex ", "").toUpperCase(), 32, 28);
-
+  context.font = "bold 12px system-ui, sans-serif";
   context.textAlign = "right";
   context.fillText(trimImageLine(snapshot.hint.replace(" | ", "  "), 32), 548, 28);
-}
-
-function drawNightModeLabel(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
-  context.fillStyle = "rgba(124, 255, 158, 0.36)";
-  context.font = "bold 11px system-ui, sans-serif";
-  context.textAlign = "left";
-  context.fillText(snapshot.title.replace("Apex ", "").toUpperCase(), 32, 28);
-
-  context.strokeStyle = "rgba(124, 255, 158, 0.16)";
-  context.lineWidth = 1;
-  context.beginPath();
-  context.moveTo(32, 36);
-  context.lineTo(74, 36);
-  context.stroke();
 }
 
 function drawNightDataStack(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
@@ -771,12 +761,12 @@ function drawNightDataStack(context: CanvasRenderingContext2D, snapshot: Guidanc
   if (snapshot.showSpeed && snapshot.speedLabel) {
     context.fillStyle = "rgba(124, 255, 158, 0.68)";
     context.font = "bold 18px system-ui, sans-serif";
-    context.fillText(snapshot.speedLabel, 534, 174);
+    context.fillText(snapshot.speedLabel, 534, 194);
   }
 
   context.fillStyle = "rgba(124, 255, 158, 0.38)";
   context.font = "bold 11px system-ui, sans-serif";
-  context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 22), 534, 236);
+  context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 22), 534, 252);
 
   context.textAlign = "left";
   context.fillStyle = "rgba(124, 255, 158, 0.32)";
