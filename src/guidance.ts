@@ -34,6 +34,7 @@ export type GuidanceSnapshot = {
   showSideRoads?: boolean;
   showSpeed?: boolean;
   showControlHints?: boolean;
+  nightMode?: boolean;
   speedLabel?: string;
   pickerItems?: GuidancePickerItem[];
 };

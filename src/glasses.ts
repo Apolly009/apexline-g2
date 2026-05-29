@@ -222,6 +222,8 @@ function glassRenderKey(snapshot: GuidanceSnapshot, content: string): string {
     snapshot.modifier ?? "",
     snapshot.turnAngleDegrees ?? "",
     snapshot.showSideRoads ? "side-roads" : "clean",
+    snapshot.showSpeed ? snapshot.speedLabel ?? "speed" : "no-speed",
+    snapshot.nightMode ? "night" : "day",
     snapshot.pickerItems?.map((item) => `${item.selected ? ">" : ""}${item.badge ?? ""}:${item.label}`).join("|") ?? "",
     preview,
     sideRoads
@@ -290,33 +292,35 @@ function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSna
   }
 
   drawHudHeader(context, snapshot);
-  drawRouteCue(context, snapshot, 28, 48, 226, 204);
+  const outline = snapshot.nightMode === true;
+  drawRouteCue(context, snapshot, outline ? 58 : 44, outline ? 72 : 58, outline ? 136 : 168, outline ? 150 : 180, outline);
 
-  context.textAlign = "left";
   context.fillStyle = HUD_TEXT;
-  context.font = "bold 35px system-ui, sans-serif";
-  context.fillText(formatPrimaryDistance(snapshot.primary), 288, 108);
+  context.font = "bold 30px system-ui, sans-serif";
+  context.textAlign = "right";
+  context.fillText(formatPrimaryDistance(snapshot.primary), 534, 108);
 
   context.strokeStyle = "rgba(247, 210, 99, 0.88)";
-  context.lineWidth = 3;
+  context.lineWidth = 2.4;
   context.beginPath();
-  context.moveTo(290, 122);
-  context.lineTo(374, 122);
+  context.moveTo(458, 120);
+  context.lineTo(534, 120);
   context.stroke();
 
   context.fillStyle = HUD_TEXT;
-  context.font = "bold 19px system-ui, sans-serif";
-  context.fillText(formatPrimaryAction(snapshot.primary, snapshot.arrow), 290, 156);
+  context.font = "bold 17px system-ui, sans-serif";
+  context.fillText(formatPrimaryAction(snapshot.primary, snapshot.arrow), 534, 152);
+  drawHudSpeedValue(context, snapshot, 534, 178, "right");
 
   context.fillStyle = HUD_MUTED;
-  context.font = "bold 13px system-ui, sans-serif";
-  context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 32), 290, 186);
-
-  drawHudRule(context, 290, 214, 250);
+  context.font = "bold 12px system-ui, sans-serif";
+  context.textAlign = "left";
+  context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 22), 42, 252);
 
   context.fillStyle = HUD_PRIMARY;
-  context.font = "bold 15px system-ui, sans-serif";
-  context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 26), 290, 244);
+  context.font = "bold 13px system-ui, sans-serif";
+  context.textAlign = "right";
+  context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 24), 534, 240);
 }
 
 function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
@@ -329,25 +333,25 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
   drawVehicleMarker(context, GLASS_WIDTH / 2, 246);
 
   context.fillStyle = HUD_TEXT;
-  context.font = "bold 25px system-ui, sans-serif";
+  context.font = "bold 26px system-ui, sans-serif";
   context.textAlign = "left";
-  context.fillText(formatPrimaryDistance(snapshot.primary), 34, 50);
+  context.fillText(formatPrimaryDistance(snapshot.primary), 42, 104);
   context.strokeStyle = "rgba(247, 210, 99, 0.82)";
-  context.lineWidth = 2;
+  context.lineWidth = 2.2;
   context.beginPath();
-  context.moveTo(34, 60);
-  context.lineTo(116, 60);
+  context.moveTo(42, 116);
+  context.lineTo(110, 116);
   context.stroke();
 
   context.fillStyle = HUD_PRIMARY;
-  context.font = "bold 15px system-ui, sans-serif";
+  context.font = "bold 16px system-ui, sans-serif";
   context.textAlign = "right";
-  context.fillText(formatPrimaryAction(snapshot.primary, snapshot.arrow), 540, 42);
+  context.fillText(formatPrimaryAction(snapshot.primary, snapshot.arrow), 534, 152);
+  drawHudSpeedValue(context, snapshot, 534, 178, "right");
 
   context.fillStyle = HUD_MUTED;
   context.font = "bold 11px system-ui, sans-serif";
-  context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 24), 540, 60);
-  drawSpeedReadout(context, snapshot, 548, 270, "right");
+  context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 24), 534, 198);
 }
 
 function drawIdleImage(
@@ -644,32 +648,11 @@ function drawHudHeader(context: CanvasRenderingContext2D, snapshot: GuidanceSnap
   context.textAlign = "left";
   context.fillText(snapshot.title.replace("Apex ", "").toUpperCase(), 32, 28);
 
-  if (snapshot.showSpeed) {
-    drawSpeedReadout(context, snapshot, 548, 28, "right");
-    return;
-  }
-
   context.textAlign = "right";
   context.fillText(trimImageLine(snapshot.hint.replace(" | ", "  "), 32), 548, 28);
 }
 
-function drawHudRule(context: CanvasRenderingContext2D, x: number, y: number, width: number): void {
-  context.strokeStyle = "rgba(221, 255, 227, 0.1)";
-  context.lineWidth = 3;
-  context.beginPath();
-  context.moveTo(x, y);
-  context.lineTo(x + width, y);
-  context.stroke();
-
-  context.strokeStyle = "rgba(124, 255, 158, 0.44)";
-  context.lineWidth = 1.5;
-  context.beginPath();
-  context.moveTo(x, y);
-  context.lineTo(x + width * 0.72, y);
-  context.stroke();
-}
-
-function drawSpeedReadout(
+function drawHudSpeedValue(
   context: CanvasRenderingContext2D,
   snapshot: GuidanceSnapshot,
   x: number,
@@ -680,18 +663,9 @@ function drawSpeedReadout(
     return;
   }
 
-  context.fillStyle = HUD_TEXT;
-  context.font = "bold 16px system-ui, sans-serif";
+  context.fillStyle = HUD_PRIMARY;
+  context.font = "bold 18px system-ui, sans-serif";
   context.textAlign = align;
-  const metrics = context.measureText(snapshot.speedLabel);
-  const width = metrics.width + 20;
-  const height = 26;
-  const rectX = align === "right" ? x - width : align === "center" ? x - width / 2 : x;
-  const rectY = y - 20;
-  context.fillStyle = "rgba(0, 0, 0, 0.72)";
-  roundRect(context, rectX, rectY, width, height, 6);
-  context.fill();
-  context.fillStyle = HUD_TEXT;
   context.fillText(snapshot.speedLabel, x, y);
 }
 
@@ -701,14 +675,15 @@ function drawRouteCue(
   x: number,
   y: number,
   width: number,
-  height: number
+  height: number,
+  outline = false
 ): void {
   if (shouldUseRoutePreview(snapshot) && snapshot.routePreview && snapshot.routePreview.length > 2) {
-    drawPreviewRoute(context, snapshot, x, y, width, height, false);
+    drawPreviewRoute(context, snapshot, x, y, width, height, false, outline);
     return;
   }
 
-  drawTurnGlyph(context, snapshot, x + width / 2, y + height / 2 + 10, Math.min(width, height) / 2.2);
+  drawTurnGlyph(context, snapshot, x + width / 2, y + height / 2 + 10, Math.min(width, height) / 2.2, outline);
 }
 
 function drawTurnGlyph(
@@ -716,17 +691,21 @@ function drawTurnGlyph(
   snapshot: GuidanceSnapshot,
   centerX: number,
   centerY: number,
-  size: number
+  size: number,
+  outline = false
 ): void {
   const type = snapshot.maneuverType ?? "";
   const modifier = snapshot.modifier ?? "";
+  const routeWidth = outline ? 4.2 : 9;
+  const straightWidth = outline ? 4 : 8.5;
+  const headSize = outline ? 13 : 16;
 
   context.strokeStyle = HUD_PRIMARY;
   context.fillStyle = HUD_PRIMARY;
-  context.lineWidth = 11;
+  context.lineWidth = routeWidth;
 
   if (type === "roundabout" || type === "rotary") {
-    drawRoundaboutGlyph(context, centerX, centerY, size, snapshot.exitNumber);
+    drawRoundaboutGlyph(context, centerX, centerY, size, snapshot.exitNumber, outline);
     return;
   }
 
@@ -737,8 +716,8 @@ function drawTurnGlyph(
       [centerX - size * 0.18, centerY - size * 0.52],
       [centerX - size * 0.44, centerY - size * 0.08],
       [centerX - size * 0.44, centerY + size * 0.5]
-    ], 11);
-    drawChevronArrowHead(context, centerX - size * 0.44, centerY + size * 0.56, 180, 18);
+    ], routeWidth, outline);
+    drawChevronArrowHead(context, centerX - size * 0.44, centerY + size * 0.56, 180, headSize, outline);
     return;
   }
 
@@ -755,8 +734,8 @@ function drawTurnGlyph(
       [centerX, centerY + size * 0.68],
       [centerX, centerY + size * 0.05],
       [centerX + (right ? size * 0.54 : -size * 0.54), centerY - size * 0.5]
-    ], 11);
-    drawChevronArrowHead(context, centerX + (right ? size * 0.58 : -size * 0.58), centerY - size * 0.54, right ? 45 : -45, 18);
+    ], routeWidth, outline);
+    drawChevronArrowHead(context, centerX + (right ? size * 0.58 : -size * 0.58), centerY - size * 0.54, right ? 45 : -45, headSize, outline);
     return;
   }
 
@@ -767,8 +746,8 @@ function drawTurnGlyph(
       [centerX - size * 0.28, centerY + size * 0.66],
       [centerX - size * 0.28, centerY + (slight ? -size * 0.1 : size * 0.08)],
       [centerX + (slight ? size * 0.28 : size * 0.55), centerY - (sharp ? size * 0.16 : size * 0.4)]
-    ], 11);
-    drawChevronArrowHead(context, centerX + (slight ? size * 0.34 : size * 0.61), centerY - (sharp ? size * 0.16 : size * 0.45), slight ? 35 : 65, 18);
+    ], routeWidth, outline);
+    drawChevronArrowHead(context, centerX + (slight ? size * 0.34 : size * 0.61), centerY - (sharp ? size * 0.16 : size * 0.45), slight ? 35 : 65, headSize, outline);
     return;
   }
 
@@ -779,8 +758,8 @@ function drawTurnGlyph(
       [centerX + size * 0.28, centerY + size * 0.66],
       [centerX + size * 0.28, centerY + (slight ? -size * 0.1 : size * 0.08)],
       [centerX - (slight ? size * 0.28 : size * 0.55), centerY - (sharp ? size * 0.16 : size * 0.4)]
-    ], 11);
-    drawChevronArrowHead(context, centerX - (slight ? size * 0.34 : size * 0.61), centerY - (sharp ? size * 0.16 : size * 0.45), slight ? -35 : -65, 18);
+    ], routeWidth, outline);
+    drawChevronArrowHead(context, centerX - (slight ? size * 0.34 : size * 0.61), centerY - (sharp ? size * 0.16 : size * 0.45), slight ? -35 : -65, headSize, outline);
     return;
   }
 
@@ -788,8 +767,8 @@ function drawTurnGlyph(
   drawPremiumRoutePath(context, [
     [centerX, centerY + size * 0.68],
     [centerX, centerY - size * 0.5]
-  ], 10);
-  drawChevronArrowHead(context, centerX, centerY - size * 0.6, 0, 18);
+  ], straightWidth, outline);
+  drawChevronArrowHead(context, centerX, centerY - size * 0.6, 0, headSize, outline);
 }
 
 function drawRoundaboutGlyph(
@@ -797,20 +776,21 @@ function drawRoundaboutGlyph(
   centerX: number,
   centerY: number,
   size: number,
-  exitNumber: number | null | undefined
+  exitNumber: number | null | undefined,
+  outline = false
 ): void {
   context.strokeStyle = "rgba(221, 255, 227, 0.11)";
-  context.lineWidth = 24;
+  context.lineWidth = outline ? 7 : 24;
   context.beginPath();
   context.arc(centerX, centerY, size * 0.38, Math.PI * 0.2, Math.PI * 1.82);
   context.stroke();
 
   context.strokeStyle = HUD_PRIMARY;
-  context.lineWidth = 11;
+  context.lineWidth = outline ? 3.6 : 9;
   context.beginPath();
   context.arc(centerX, centerY, size * 0.38, Math.PI * 0.2, Math.PI * 1.82);
   context.stroke();
-  drawChevronArrowHead(context, centerX + size * 0.34, centerY - size * 0.24, 45, 18);
+  drawChevronArrowHead(context, centerX + size * 0.34, centerY - size * 0.24, 45, outline ? 12 : 16, outline);
 
   context.fillStyle = HUD_TEXT;
   context.font = "bold 20px system-ui, sans-serif";
@@ -844,7 +824,8 @@ function drawPreviewRoute(
   y: number,
   width: number,
   height: number,
-  mapMode: boolean
+  mapMode: boolean,
+  outline = snapshot.nightMode === true
 ): void {
   const points = snapshot.routePreview && snapshot.routePreview.length > 1
     ? snapshot.routePreview
@@ -861,27 +842,29 @@ function drawPreviewRoute(
   }
 
   context.strokeStyle = mapMode ? "rgba(0, 0, 0, 0.5)" : "rgba(0, 0, 0, 0.5)";
-  context.lineWidth = mapMode ? 19 : 22;
+  context.lineWidth = outline ? mapMode ? 11 : 10 : mapMode ? 19 : 22;
   drawSmoothPath(context, pixelPoints);
 
   context.strokeStyle = mapMode ? "rgba(221, 255, 227, 0.1)" : "rgba(221, 255, 227, 0.12)";
-  context.lineWidth = mapMode ? 12 : 14;
+  context.lineWidth = outline ? mapMode ? 5 : 5 : mapMode ? 12 : 14;
   drawSmoothPath(context, pixelPoints);
 
   context.strokeStyle = mapMode ? "rgba(124, 255, 158, 0.56)" : HUD_PRIMARY;
-  context.lineWidth = mapMode ? 5 : 6;
+  context.lineWidth = outline ? mapMode ? 2.4 : 2.6 : mapMode ? 5 : 6;
   drawSmoothPath(context, pixelPoints);
 
   context.strokeStyle = mapMode ? "rgba(247, 210, 99, 0.42)" : "rgba(247, 210, 99, 0.72)";
-  context.lineWidth = mapMode ? 1.5 : 2.5;
+  context.lineWidth = outline ? 1.1 : mapMode ? 1.5 : 2.5;
   drawSmoothPath(context, pixelPoints.slice(Math.max(0, pixelPoints.length - 5)));
 
   const end = pixelPoints[pixelPoints.length - 1];
   const beforeEnd = pixelPoints[Math.max(0, pixelPoints.length - 2)];
   const angle = (Math.atan2(end[0] - beforeEnd[0], beforeEnd[1] - end[1]) * 180) / Math.PI;
-  context.globalAlpha = mapMode ? 0.72 : 1;
-  drawChevronArrowHead(context, end[0], end[1], angle, mapMode ? 20 : 18);
-  context.globalAlpha = 1;
+  if (!mapMode) {
+    context.globalAlpha = outline ? 0.86 : 1;
+    drawChevronArrowHead(context, end[0], end[1], angle, outline ? 13 : 18, outline);
+    context.globalAlpha = 1;
+  }
 
 }
 
@@ -945,24 +928,21 @@ function sideRoadColor(roadClass: "major" | "medium" | "minor", mapMode: boolean
 }
 
 function drawVehicleMarker(context: CanvasRenderingContext2D, x: number, y: number): void {
-  context.fillStyle = "rgba(0, 0, 0, 0.52)";
+  context.fillStyle = "rgba(0, 0, 0, 0.58)";
   context.beginPath();
-  context.moveTo(x, y - 17);
-  context.lineTo(x + 17, y + 17);
-  context.lineTo(x, y + 10);
-  context.lineTo(x - 17, y + 17);
-  context.closePath();
+  context.arc(x, y, 15, 0, Math.PI * 2);
   context.fill();
 
   context.strokeStyle = "rgba(247, 210, 99, 0.88)";
-  context.lineWidth = 3;
+  context.lineWidth = 2.5;
   context.beginPath();
-  context.moveTo(x, y - 13);
-  context.lineTo(x + 12, y + 13);
-  context.lineTo(x, y + 7);
-  context.lineTo(x - 12, y + 13);
-  context.closePath();
+  context.arc(x, y, 11, 0, Math.PI * 2);
   context.stroke();
+
+  context.fillStyle = HUD_PRIMARY;
+  context.beginPath();
+  context.arc(x, y, 4, 0, Math.PI * 2);
+  context.fill();
 }
 
 function drawAlert(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
@@ -1012,14 +992,15 @@ function drawSmoothPath(context: CanvasRenderingContext2D, points: Array<[number
 function drawPremiumRoutePath(
   context: CanvasRenderingContext2D,
   points: Array<[number, number]>,
-  lineWidth: number
+  lineWidth: number,
+  outline = false
 ): void {
   context.strokeStyle = "rgba(0, 0, 0, 0.62)";
-  context.lineWidth = lineWidth + 8;
+  context.lineWidth = outline ? lineWidth + 4 : lineWidth + 8;
   drawSmoothPath(context, points);
 
   context.strokeStyle = "rgba(221, 255, 227, 0.1)";
-  context.lineWidth = lineWidth + 2;
+  context.lineWidth = outline ? lineWidth + 1 : lineWidth + 2;
   drawSmoothPath(context, points);
 
   context.strokeStyle = HUD_PRIMARY;
@@ -1053,7 +1034,8 @@ function drawChevronArrowHead(
   x: number,
   y: number,
   degrees: number,
-  size: number
+  size: number,
+  outline = false
 ): void {
   const radians = (degrees * Math.PI) / 180;
   const back = radians + Math.PI;
@@ -1067,7 +1049,7 @@ function drawChevronArrowHead(
   context.lineCap = "round";
   context.lineJoin = "round";
   context.strokeStyle = "rgba(0, 0, 0, 0.62)";
-  context.lineWidth = 13;
+  context.lineWidth = outline ? 7 : 13;
   context.beginPath();
   context.moveTo(leftX, leftY);
   context.lineTo(x, y);
@@ -1075,7 +1057,7 @@ function drawChevronArrowHead(
   context.stroke();
 
   context.strokeStyle = HUD_PRIMARY;
-  context.lineWidth = 7;
+  context.lineWidth = outline ? 3.4 : 7;
   context.beginPath();
   context.moveTo(leftX, leftY);
   context.lineTo(x, y);

@@ -25,6 +25,7 @@ type AppState = {
   showSideRoads: boolean;
   showSpeed: boolean;
   showControlHints: boolean;
+  nightMode: boolean;
   activeSearchField: "origin" | "destination" | null;
   bridgeConnected: boolean;
   locating: boolean;
@@ -74,6 +75,7 @@ const UNIT_SYSTEM_STORAGE_KEY = "apexline-unit-system";
 const SIDE_ROADS_STORAGE_KEY = "apexline-side-roads";
 const SPEED_DISPLAY_STORAGE_KEY = "apexline-speed-display";
 const CONTROL_HINTS_STORAGE_KEY = "apexline-control-hints";
+const NIGHT_MODE_STORAGE_KEY = "apexline-night-mode";
 
 const state: AppState = {
   mode: "motorcycle",
@@ -82,6 +84,7 @@ const state: AppState = {
   showSideRoads: loadSideRoadsEnabled(),
   showSpeed: loadSpeedDisplayEnabled(),
   showControlHints: loadControlHintsEnabled(),
+  nightMode: loadNightModeEnabled(),
   activeSearchField: null,
   bridgeConnected: false,
   locating: false,
@@ -269,6 +272,11 @@ function applyLaunchOptions(): void {
     saveControlHintsEnabled();
   }
 
+  if (params.has("night")) {
+    state.nightMode = params.get("night") !== "0";
+    saveNightModeEnabled();
+  }
+
   if (params.has("devTools")) {
     state.devToolsEnabled = params.get("devTools") !== "0";
   }
@@ -452,6 +460,10 @@ function renderSettingsMenu(): string {
         <label class="setting-toggle">
           <input type="checkbox" data-speed-display ${state.showSpeed ? "checked" : ""} />
           <span>Speed on glasses</span>
+        </label>
+        <label class="setting-toggle">
+          <input type="checkbox" data-night-mode ${state.nightMode ? "checked" : ""} />
+          <span>Night HUD</span>
         </label>
         <label class="setting-toggle">
           <input type="checkbox" data-control-hints ${state.showControlHints ? "checked" : ""} />
@@ -779,6 +791,13 @@ function bindEvents(): void {
   document.querySelector<HTMLInputElement>("[data-speed-display]")?.addEventListener("change", (event) => {
     state.showSpeed = (event.target as HTMLInputElement).checked;
     saveSpeedDisplayEnabled();
+    void updateGlass();
+    render();
+  });
+
+  document.querySelector<HTMLInputElement>("[data-night-mode]")?.addEventListener("change", (event) => {
+    state.nightMode = (event.target as HTMLInputElement).checked;
+    saveNightModeEnabled();
     void updateGlass();
     render();
   });
@@ -1185,6 +1204,14 @@ function loadControlHintsEnabled(): boolean {
 
 function saveControlHintsEnabled(): void {
   window.localStorage.setItem(CONTROL_HINTS_STORAGE_KEY, state.showControlHints ? "1" : "0");
+}
+
+function loadNightModeEnabled(): boolean {
+  return window.localStorage.getItem(NIGHT_MODE_STORAGE_KEY) === "1";
+}
+
+function saveNightModeEnabled(): void {
+  window.localStorage.setItem(NIGHT_MODE_STORAGE_KEY, state.nightMode ? "1" : "0");
 }
 
 function formatCurrentSpeed(): string {
@@ -1785,7 +1812,8 @@ function withDisplayPreferences(snapshot: GuidanceSnapshot): GuidanceSnapshot {
       : "",
     showSideRoads: state.showSideRoads,
     showSpeed: state.showSpeed,
-    showControlHints: state.showControlHints
+    showControlHints: state.showControlHints,
+    nightMode: state.nightMode
   };
 }
 
@@ -2181,6 +2209,14 @@ function glassesSettings(): Array<{ label: string; value: () => string; toggle: 
       toggle: () => {
         state.showSpeed = !state.showSpeed;
         saveSpeedDisplayEnabled();
+      }
+    },
+    {
+      label: "Night HUD",
+      value: () => state.nightMode ? "Minimal outline" : "Day contrast",
+      toggle: () => {
+        state.nightMode = !state.nightMode;
+        saveNightModeEnabled();
       }
     }
   ];
