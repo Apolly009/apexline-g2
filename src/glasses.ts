@@ -149,6 +149,23 @@ export class GlassDisplay {
     this.lastContent = renderKey;
   }
 
+  async shutdown(): Promise<void> {
+    const bridge = this.bridge;
+    if (!bridge) {
+      return;
+    }
+
+    try {
+      await (bridge as Bridge & {
+        shutDownPageContainer: (containerID: number) => Promise<unknown>;
+      }).shutDownPageContainer(1);
+      this.ready = false;
+      this.lastContent = "";
+    } catch (error) {
+      console.info("[GlassDisplay] shutDownPageContainer failed", error);
+    }
+  }
+
   private async createPage(content: string, mode: "startup" | "rebuild", snapshot?: GuidanceSnapshot): Promise<boolean> {
     if (!this.bridge) {
       return false;
