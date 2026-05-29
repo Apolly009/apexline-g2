@@ -35,6 +35,43 @@ const HUD_MUTED = "#82aa8d";
 const HUD_FAINT = "rgba(124, 255, 158, 0.2)";
 const HUD_AMBER = "#f7d263";
 const MENU_X = 112;
+const SPLASH_ROUTE_ROTATION_DEGREES = 45;
+const SPLASH_ROUTE_SCALE = 2.05;
+const SPLASH_ROUTE_CENTER: Point = [288, 148];
+const SPLASH_HULFTEGG_COORDINATES: CoordinatePoint[] = [
+  [8.975566, 47.369084],
+  [8.975753, 47.369295],
+  [8.975804, 47.369368],
+  [8.975833, 47.369408],
+  [8.975862, 47.369436],
+  [8.975883, 47.369451],
+  [8.975903, 47.369461],
+  [8.975927, 47.369469],
+  [8.975955, 47.369472],
+  [8.975981, 47.369471],
+  [8.976006, 47.369464],
+  [8.976025, 47.369453],
+  [8.97604, 47.36944],
+  [8.976051, 47.369424],
+  [8.976053, 47.369405],
+  [8.976047, 47.369384],
+  [8.976032, 47.369355],
+  [8.976013, 47.369328],
+  [8.975903, 47.369188],
+  [8.975753, 47.368988],
+  [8.975657, 47.368836],
+  [8.975638, 47.368796],
+  [8.975626, 47.368767],
+  [8.975611, 47.368728],
+  [8.975598, 47.368688],
+  [8.975563, 47.368534],
+  [8.975531, 47.368372],
+  [8.975484, 47.368149]
+];
+const SPLASH_HULFTEGG_POINTS = projectHulfteggCorner(SPLASH_HULFTEGG_COORDINATES);
+
+type Point = [number, number];
+type CoordinatePoint = [number, number];
 
 export class GlassDisplay {
   private bridge: Bridge | null = null;
@@ -97,7 +134,6 @@ export class GlassDisplay {
     const content = renderGlassText(snapshot);
     const renderKey = glassRenderKey(snapshot, content);
     if (!this.bridge || !this.ready) {
-      this.lastContent = renderKey;
       return;
     }
 
@@ -168,13 +204,14 @@ export class GlassDisplay {
   }
 
   private async updateImage(snapshot: GuidanceSnapshot | undefined, fallbackContent: string): Promise<void> {
-    if (!this.bridge) {
+    const bridge = this.bridge;
+    if (!bridge) {
       return;
     }
 
     const tiles = renderGlassImageTiles(snapshot, fallbackContent);
-    for (const tile of tiles) {
-      const result = await this.bridge.updateImageRawData(
+    await Promise.all(tiles.map(async (tile) => {
+      const result = await bridge.updateImageRawData(
         new ImageRawDataUpdate({
           containerID: tile.id,
           containerName: tile.name,
@@ -185,7 +222,7 @@ export class GlassDisplay {
       if (!ImageRawDataUpdateResult.isSuccess(result)) {
         console.info("[GlassDisplay] image update did not succeed", tile.name, result);
       }
-    }
+    }));
   }
 
   private async enableImuReporting(): Promise<void> {
@@ -251,6 +288,9 @@ function glassRenderKey(snapshot: GuidanceSnapshot, content: string): string {
     snapshot.showSideRoads ? "side-roads" : "clean",
     snapshot.showSpeed ? snapshot.speedLabel ?? "speed" : "no-speed",
     snapshot.nightMode ? "night" : "day",
+    snapshot.homeVariant ?? "",
+    snapshot.splashFrame ?? "",
+    snapshot.transitionFrame ?? "",
     snapshot.pickerItems?.map((item) => `${item.selected ? ">" : ""}${item.badge ?? ""}:${item.label}`).join("|") ?? "",
     preview,
     sideRoads
@@ -454,10 +494,17 @@ function drawIdleImage(
   const secondary = snapshot?.secondary ?? lines[2] ?? "Waiting for route";
   const tertiary = snapshot?.tertiary ?? snapshot?.hint ?? "";
 
+  if (snapshot?.homeVariant === "splash") {
+    drawStartupSplash(context, snapshot.splashFrame ?? 0);
+    return;
+  }
+
   const chromeHint = title === "Choose Start" || title === "Choose Finish" ? "" : snapshot?.hint ?? "";
   drawMenuChrome(context, title, chromeHint);
   if (title === "Choose Start" || title === "Choose Finish") {
     drawFavoriteMenu(context, title, primary, secondary, snapshot?.hint ?? "", snapshot?.pickerItems ?? []);
+  } else if (title === "Choose Mode") {
+    drawModeMenu(context, snapshot?.pickerItems ?? [], snapshot?.hint ?? "", secondary, snapshot?.homeVariant, snapshot?.transitionFrame ?? 0);
   } else if (title === "Route Ready") {
     drawRouteReadyMenu(context, primary, secondary, tertiary);
   } else if (title === "Settings") {
@@ -465,6 +512,283 @@ function drawIdleImage(
   } else {
     drawHomeMenu(context, primary, secondary, tertiary, snapshot?.hint ?? "");
   }
+}
+
+function drawModeMenu(
+  context: CanvasRenderingContext2D,
+  items: NonNullable<GuidanceSnapshot["pickerItems"]>,
+  hint: string,
+  statusLabel: string,
+  variant: GuidanceSnapshot["homeVariant"],
+  frame: number
+): void {
+  if (variant === "transition") {
+    drawStartupTransition(context, frame);
+  }
+
+  const transitionProgress = variant === "transition" ? Math.min(1, frame / 10) : 1;
+  const slideX = (1 - transitionProgress) * 42;
+  context.fillStyle = "rgba(221, 255, 227, 0.8)";
+  context.font = "bold 13px system-ui, sans-serif";
+  context.textAlign = "right";
+  context.globalAlpha = transitionProgress;
+  context.fillText(trimImageLine(statusLabel, 24), 544, 78);
+  context.save();
+  context.globalAlpha = Math.max(0.28, transitionProgress);
+  context.translate(slideX, 0);
+  drawFavoriteList(context, items);
+  context.restore();
+  context.globalAlpha = 1;
+  drawTinyHint(context, hint, MENU_X, 274);
+}
+
+function drawStartupSplash(context: CanvasRenderingContext2D, frame: number): void {
+  const phase = frame % 10;
+  const progress = Math.min(1, frame / 32);
+  const roadProgress = Math.min(1, progress + 0.045);
+  const marker = splashRoutePoint(progress);
+  const markerNext = splashRoutePoint(Math.min(1, progress + 0.025));
+  context.save();
+  context.textAlign = "center";
+  context.setLineDash([]);
+
+  context.strokeStyle = "rgba(124, 255, 158, 0.3)";
+  context.lineWidth = 11;
+  context.lineCap = "round";
+  context.beginPath();
+  drawSplashRoutePath(context, 0, 0, roadProgress);
+  context.stroke();
+
+  context.strokeStyle = "rgba(0, 0, 0, 0.22)";
+  context.lineWidth = 10;
+  context.lineCap = "round";
+  context.beginPath();
+  drawSplashRoutePath(context, 0, 0, roadProgress);
+  context.stroke();
+
+  context.strokeStyle = "rgba(124, 255, 158, 0.36)";
+  context.lineWidth = 3;
+  context.beginPath();
+  drawSplashRoutePath(context, 0, 0, roadProgress);
+  context.stroke();
+
+  context.strokeStyle = "rgba(221, 255, 227, 0.88)";
+  context.lineWidth = 2.2;
+  context.setLineDash([14, 11]);
+  context.lineDashOffset = -phase * 6;
+  context.beginPath();
+  drawSplashRoutePath(context, 0, 0, roadProgress);
+  context.stroke();
+  context.setLineDash([]);
+
+  drawRotatedVehicleMarker(context, marker.x, marker.y, markerNext.x - marker.x, markerNext.y - marker.y, 0.72 + (phase % 3) * 0.05);
+
+  drawMorphingApexline(context, progress);
+
+  context.fillStyle = "rgba(221, 255, 227, 0.78)";
+  context.font = "bold 13px system-ui, sans-serif";
+  context.fillText("RIDE THE LINE", GLASS_WIDTH / 2, 228);
+
+  context.strokeStyle = "rgba(124, 255, 158, 0.58)";
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(226, 246);
+  context.lineTo(350, 246);
+  context.stroke();
+
+  context.fillStyle = "rgba(221, 255, 227, 0.48)";
+  context.font = "bold 10px system-ui, sans-serif";
+  context.fillText("TAP TO SKIP", GLASS_WIDTH / 2, 266);
+  context.restore();
+}
+
+function drawStartupTransition(context: CanvasRenderingContext2D, frame: number): void {
+  const progress = Math.min(1, frame / 10);
+  const marker = splashRoutePoint(1);
+  const markerBack = splashRoutePoint(0.96);
+  context.save();
+  context.globalAlpha = 1 - progress * 0.72;
+  context.strokeStyle = "rgba(124, 255, 158, 0.34)";
+  context.lineWidth = 5 - progress * 2;
+  context.lineCap = "round";
+  context.beginPath();
+  drawSplashRoutePath(context, -progress * 28, progress * 8);
+  context.stroke();
+
+  drawRotatedVehicleMarker(
+    context,
+    marker.x - progress * 28,
+    marker.y + progress * 8,
+    marker.x - markerBack.x,
+    marker.y - markerBack.y,
+    0.68 - progress * 0.18
+  );
+  context.globalAlpha = 1 - progress;
+  context.fillStyle = HUD_PRIMARY;
+  context.font = "bold 27px system-ui, sans-serif";
+  context.textAlign = "center";
+  context.fillText("APEXLINE", 288, 72 - progress * 18);
+  context.restore();
+}
+
+function drawMorphingApexline(context: CanvasRenderingContext2D, progress: number): void {
+  const apexAlpha = Math.min(1, Math.max(0, (progress - 0.24) / 0.12));
+  const lineAlpha = Math.min(1, Math.max(0, (progress - 0.76) / 0.12));
+  const merge = Math.min(1, Math.max(0, (progress - 0.86) / 0.14));
+  const y = lerp(82, 70, merge);
+
+  context.save();
+  context.textAlign = "center";
+  if (merge >= 0.98) {
+    context.globalAlpha = Math.min(apexAlpha, lineAlpha);
+    context.fillStyle = HUD_PRIMARY;
+    context.font = "bold 29px system-ui, sans-serif";
+    context.fillText("APEXLINE", GLASS_WIDTH / 2, y);
+    context.restore();
+    return;
+  }
+
+  context.font = "bold 24px system-ui, sans-serif";
+  context.globalAlpha = apexAlpha;
+  context.fillStyle = HUD_PRIMARY;
+  context.fillText("APEX", lerp(456, 252, merge), lerp(62, y, merge));
+
+  context.globalAlpha = lineAlpha;
+  context.fillStyle = HUD_TEXT;
+  context.fillText("LINE", lerp(166, 329, merge), lerp(252, y, merge));
+  context.restore();
+}
+
+function drawSplashRoutePath(context: CanvasRenderingContext2D, offsetX = 0, offsetY = 0, progress = 1): void {
+  const points = splashRoutePointsUpTo(progress);
+  points.forEach(([x, y], index) => {
+    if (index === 0) {
+      context.moveTo(x + offsetX, y + offsetY);
+    } else {
+      context.lineTo(x + offsetX, y + offsetY);
+    }
+  });
+}
+
+function splashRoutePoint(progress: number): { x: number; y: number } {
+  return pointAlongPolyline(SPLASH_HULFTEGG_POINTS, progress);
+}
+
+function splashRoutePointsUpTo(progress: number): Point[] {
+  const clamped = Math.max(0, Math.min(1, progress));
+  if (clamped >= 1) {
+    return SPLASH_HULFTEGG_POINTS;
+  }
+
+  const totalLength = polylineLength(SPLASH_HULFTEGG_POINTS);
+  let remaining = totalLength * clamped;
+  const points: Point[] = [SPLASH_HULFTEGG_POINTS[0]];
+
+  for (let index = 1; index < SPLASH_HULFTEGG_POINTS.length; index += 1) {
+    const previous = SPLASH_HULFTEGG_POINTS[index - 1];
+    const point = SPLASH_HULFTEGG_POINTS[index];
+    const segmentLength = Math.hypot(point[0] - previous[0], point[1] - previous[1]);
+    if (remaining <= segmentLength) {
+      const segmentProgress = segmentLength === 0 ? 0 : remaining / segmentLength;
+      points.push([
+        lerp(previous[0], point[0], segmentProgress),
+        lerp(previous[1], point[1], segmentProgress)
+      ]);
+      return points;
+    }
+
+    remaining -= segmentLength;
+    points.push(point);
+  }
+
+  return points;
+}
+
+function projectHulfteggCorner(coordinates: CoordinatePoint[]): Point[] {
+  const centerLon = coordinates.reduce((sum, [lon]) => sum + lon, 0) / coordinates.length;
+  const centerLat = coordinates.reduce((sum, [, lat]) => sum + lat, 0) / coordinates.length;
+  const latitudeScale = Math.cos((centerLat * Math.PI) / 180);
+  const rotation = (SPLASH_ROUTE_ROTATION_DEGREES * Math.PI) / 180;
+  const routeMeters = coordinates.map(([lon, lat]) => {
+    const x = (lon - centerLon) * 111_320 * latitudeScale;
+    const y = -(lat - centerLat) * 111_320;
+    return [
+      x * Math.cos(rotation) - y * Math.sin(rotation),
+      x * Math.sin(rotation) + y * Math.cos(rotation)
+    ] as Point;
+  });
+  const bounds = routeMeters.reduce(
+    (box, [x, y]) => ({
+      minX: Math.min(box.minX, x),
+      maxX: Math.max(box.maxX, x),
+      minY: Math.min(box.minY, y),
+      maxY: Math.max(box.maxY, y)
+    }),
+    { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
+  );
+  const routeCenterX = (bounds.minX + bounds.maxX) / 2;
+  const routeCenterY = (bounds.minY + bounds.maxY) / 2;
+
+  return routeMeters.map(([x, y]) => [
+    SPLASH_ROUTE_CENTER[0] + (x - routeCenterX) * SPLASH_ROUTE_SCALE,
+    SPLASH_ROUTE_CENTER[1] + (y - routeCenterY) * SPLASH_ROUTE_SCALE
+  ]);
+}
+
+function pointAlongPolyline(points: Point[], progress: number): { x: number; y: number } {
+  const clamped = Math.max(0, Math.min(1, progress));
+  const segments = points.slice(1).map((point, index) => {
+    const previous = points[index];
+    return {
+      start: previous,
+      end: point,
+      length: Math.hypot(point[0] - previous[0], point[1] - previous[1])
+    };
+  });
+  const totalLength = segments.reduce((sum, segment) => sum + segment.length, 0);
+  let remaining = totalLength * clamped;
+
+  for (const segment of segments) {
+    if (remaining <= segment.length) {
+      const segmentProgress = segment.length === 0 ? 0 : remaining / segment.length;
+      return {
+        x: lerp(segment.start[0], segment.end[0], segmentProgress),
+        y: lerp(segment.start[1], segment.end[1], segmentProgress)
+      };
+    }
+
+    remaining -= segment.length;
+  }
+
+  const [x, y] = points[points.length - 1];
+  return { x, y };
+}
+
+function polylineLength(points: Point[]): number {
+  return points.slice(1).reduce((length, point, index) => {
+    const previous = points[index];
+    return length + Math.hypot(point[0] - previous[0], point[1] - previous[1]);
+  }, 0);
+}
+
+function drawRotatedVehicleMarker(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  dx: number,
+  dy: number,
+  scale: number
+): void {
+  context.save();
+  context.translate(x, y);
+  context.rotate(Math.atan2(dy, dx) + Math.PI / 2);
+  context.scale(scale, scale);
+  drawVehicleMarker(context, 0, 0);
+  context.restore();
+}
+
+function lerp(start: number, end: number, progress: number): number {
+  return start + (end - start) * Math.max(0, Math.min(1, progress));
 }
 
 function drawMenuChrome(context: CanvasRenderingContext2D, title: string, hint: string): void {
