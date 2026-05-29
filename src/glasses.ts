@@ -264,6 +264,7 @@ function glassRenderKey(snapshot: GuidanceSnapshot, content: string): string {
     snapshot.arrowLayout ?? "left-arrow",
     snapshot.homeVariant ?? "",
     snapshot.splashFrame ?? "",
+    snapshot.splashTravelFrames ?? "",
     snapshot.transitionFrame ?? "",
     snapshot.pickerItems?.map((item) => `${item.selected ? ">" : ""}${item.badge ?? ""}:${item.label}`).join("|") ?? "",
     preview,
@@ -447,7 +448,7 @@ function drawIdleImage(
   const tertiary = snapshot?.tertiary ?? snapshot?.hint ?? "";
 
   if (snapshot?.homeVariant === "splash") {
-    drawStartupSplash(context, snapshot.splashFrame ?? 0);
+    drawStartupSplash(context, snapshot.splashFrame ?? 0, snapshot.splashTravelFrames ?? 32);
     return;
   }
 
@@ -494,9 +495,9 @@ function drawModeMenu(
   drawTinyHint(context, hint, MENU_X, 274);
 }
 
-function drawStartupSplash(context: CanvasRenderingContext2D, frame: number): void {
+function drawStartupSplash(context: CanvasRenderingContext2D, frame: number, travelFrames: number): void {
   const phase = frame % 10;
-  const progress = Math.min(1, frame / 32);
+  const progress = Math.min(1, frame / Math.max(1, travelFrames));
   const roadProgress = Math.min(1, progress + 0.045);
   const marker = splashRoutePoint(progress);
   const markerNext = splashRoutePoint(Math.min(1, progress + 0.025));

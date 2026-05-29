@@ -81,6 +81,9 @@ const NIGHT_MODE_STORAGE_KEY = "apexline-night-mode";
 const ARROW_LAYOUT_STORAGE_KEY = "apexline-arrow-layout";
 const GLASSES_SPLASH_MS = 3450;
 const GLASSES_SPLASH_FRAME_MS = 90;
+const GLASSES_SPLASH_TRAVEL_FRAMES = 32;
+const GLASSES_SPLASH_SETTLE_FRAMES = 9;
+const GLASSES_SPLASH_MAX_SETTLE_MS = 900;
 const GLASSES_HOME_TRANSITION_MS = 650;
 const GLASSES_HOME_TRANSITION_FRAME_MS = 90;
 const GLASSES_POST_SPLASH_INPUT_GUARD_MS = 450;
@@ -198,6 +201,7 @@ async function boot(): Promise<void> {
 function scheduleGlassesSplashTransition(): void {
   stopGlassesSplashTimers();
   glassesSplashFrame = 0;
+  const splashDurationMs = effectiveSplashDurationMs();
 
   glassesSplashAnimationTimer = window.setInterval(() => {
     if (state.glassesScreen !== "splash") {
@@ -216,7 +220,7 @@ function scheduleGlassesSplashTransition(): void {
     }
 
     startGlassesHomeTransition();
-  }, glassesSplashDurationMs);
+  }, splashDurationMs);
 }
 
 function dismissGlassesSplash(): void {
@@ -2008,8 +2012,22 @@ function splashGlassesSnapshot(): GuidanceSnapshot {
     distanceToStepMeters: 0,
     offRoute: false,
     homeVariant: "splash",
-    splashFrame: glassesSplashFrame
+    splashFrame: glassesSplashFrame,
+    splashTravelFrames: splashTravelFrames()
   };
+}
+
+function splashTravelFrames(): number {
+  return GLASSES_SPLASH_TRAVEL_FRAMES;
+}
+
+function effectiveSplashDurationMs(): number {
+  const travelMs = GLASSES_SPLASH_TRAVEL_FRAMES * GLASSES_SPLASH_FRAME_MS;
+  const settleMs = Math.min(
+    GLASSES_SPLASH_MAX_SETTLE_MS,
+    Math.max(GLASSES_SPLASH_SETTLE_FRAMES * GLASSES_SPLASH_FRAME_MS, glassesSplashDurationMs - travelMs)
+  );
+  return travelMs + settleMs;
 }
 
 function homeMenuGlassesSnapshot(): GuidanceSnapshot {

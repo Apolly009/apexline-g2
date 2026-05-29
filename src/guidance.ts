@@ -38,6 +38,7 @@ export type GuidanceSnapshot = {
   arrowLayout?: "left" | "bottom";
   homeVariant?: "splash" | "transition" | "menu";
   splashFrame?: number;
+  splashTravelFrames?: number;
   transitionFrame?: number;
   speedLabel?: string;
   pickerItems?: GuidancePickerItem[];
