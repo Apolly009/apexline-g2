@@ -1,10 +1,13 @@
 import { inflateSync, deflateSync } from "node:zlib";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, extname } from "node:path";
 
 const port = process.env.APEXLINE_SIM_PORT ?? "9898";
 const output = process.env.APEXLINE_SCREENSHOT ?? "/private/tmp/apexline-glasses.png";
 const preview = process.env.APEXLINE_SCREENSHOT_PREVIEW ?? "/private/tmp/apexline-glasses-black.png";
+const stamp = new Date().toISOString().replaceAll(/[:.]/g, "-");
+const stampedOutput = addStamp(output, stamp);
+const stampedPreview = addStamp(preview, stamp);
 const response = await fetch(`http://127.0.0.1:${port}/api/screenshot/glasses`);
 
 if (!response.ok) {
@@ -15,10 +18,22 @@ const bytes = Buffer.from(await response.arrayBuffer());
 mkdirSync(dirname(output), { recursive: true });
 mkdirSync(dirname(preview), { recursive: true });
 writeFileSync(output, bytes);
-writeFileSync(preview, compositeGreenAlphaOnBlack(bytes));
+writeFileSync(stampedOutput, bytes);
+const previewBytes = compositeGreenAlphaOnBlack(bytes);
+writeFileSync(preview, previewBytes);
+writeFileSync(stampedPreview, previewBytes);
 
 console.log(`Saved glasses screenshot: ${output}`);
+console.log(`Saved fresh screenshot: ${stampedOutput}`);
 console.log(`Saved black preview: ${preview}`);
+console.log(`Saved fresh black preview: ${stampedPreview}`);
+
+function addStamp(path, stamp) {
+  const extension = extname(path);
+  return extension
+    ? `${path.slice(0, -extension.length)}-${stamp}${extension}`
+    : `${path}-${stamp}`;
+}
 
 function compositeGreenAlphaOnBlack(bytes) {
   const image = readPng(bytes);
