@@ -80,6 +80,8 @@ type BlitzerAlert = {
   id: string;
   label: string;
   distanceMeters: number;
+  interpolatedDistanceMeters: number;
+  distanceUpdatedAt: number;
   speedLimitKph: number | null;
   reportedAt: number;
   expiresAt: number;
@@ -215,6 +217,7 @@ let glassesHomeTransitionFrame = 0;
 let glassesSplashDurationMs = GLASSES_SPLASH_MS;
 let ignoreGlassInputUntil = 0;
 let blitzerPulseTimer: number | null = null;
+let blitzerDistanceTimer: number | null = null;
 let blitzerPulseFrame = 0;
 
 void boot();
@@ -1541,6 +1544,7 @@ function ingestBlitzerAlert(input: BlitzerAlertInput | string, fallbackSource: B
   markBlitzerBridgeActive({ ttlSeconds: normalized.source === "dev" ? 180 : undefined });
   state.blitzerAlert = normalized;
   state.blitzerReportStatus = "Blitzer alert received";
+  startBlitzerDistanceInterpolation();
   startBlitzerPulse();
   void updateGlass();
   render();
@@ -1562,6 +1566,7 @@ function clearBlitzerAlert(status = "No Blitzer alert"): void {
   state.blitzerAlert = null;
   state.blitzerReportStatus = status;
   stopBlitzerPulse();
+  stopBlitzerDistanceInterpolation();
   void updateGlass();
   render();
   syncDevDebugState();
@@ -1584,6 +1589,30 @@ function startBlitzerPulse(): void {
       void updateGlass();
     }
   }, BLITZER_PULSE_FRAME_MS);
+}
+
+function startBlitzerDistanceInterpolation(): void {
+  stopBlitzerDistanceInterpolation();
+  blitzerDistanceTimer = window.setInterval(() => {
+    const alert = currentBlitzerAlert();
+    if (!alert) {
+      stopBlitzerDistanceInterpolation();
+      void updateGlass();
+      return;
+    }
+
+    updateBlitzerDistanceEstimate(alert);
+    void updateGlass();
+    updateStatsCard();
+    syncDevDebugState();
+  }, 500);
+}
+
+function stopBlitzerDistanceInterpolation(): void {
+  if (blitzerDistanceTimer != null) {
+    window.clearInterval(blitzerDistanceTimer);
+    blitzerDistanceTimer = null;
+  }
 }
 
 function stopBlitzerPulse(): void {
@@ -1611,6 +1640,8 @@ function normalizeBlitzerAlertInput(input: BlitzerAlertInput | string, fallbackS
     id: `blitzer-${now}`,
     label: sourceInput.label ?? parsed.label ?? "Speed camera",
     distanceMeters,
+    interpolatedDistanceMeters: distanceMeters,
+    distanceUpdatedAt: now,
     speedLimitKph: speedLimitKph ?? null,
     reportedAt: now,
     expiresAt: now + ttlMs,
@@ -1640,11 +1671,43 @@ function currentBlitzerAlert(): BlitzerAlert | null {
       state.blitzerAlert = null;
       state.blitzerReportStatus = "Blitzer alert expired";
       stopBlitzerPulse();
+      stopBlitzerDistanceInterpolation();
     }
     return null;
   }
 
+  updateBlitzerDistanceEstimate(state.blitzerAlert);
   return state.blitzerAlert;
+}
+
+function updateBlitzerDistanceEstimate(alert: BlitzerAlert): void {
+  const now = Date.now();
+  const elapsedSeconds = Math.max(0, Math.min(3, (now - alert.distanceUpdatedAt) / 1000));
+  if (elapsedSeconds <= 0) {
+    return;
+  }
+
+  const speed = currentBlitzerSpeedMetersPerSecond();
+  if (speed == null || speed <= 0.2) {
+    alert.distanceUpdatedAt = now;
+    return;
+  }
+
+  alert.interpolatedDistanceMeters = Math.max(0, alert.interpolatedDistanceMeters - speed * elapsedSeconds);
+  alert.distanceUpdatedAt = now;
+}
+
+function currentBlitzerSpeedMetersPerSecond(): number | null {
+  const speed = state.position?.speedMetersPerSecond;
+  if (typeof speed === "number" && Number.isFinite(speed) && speed >= 0) {
+    return speed;
+  }
+
+  if (state.devDriving) {
+    return devDriveSpeedMetersPerSecond();
+  }
+
+  return null;
 }
 
 function blitzerDisplayAlert(alert: BlitzerAlert): GuidanceHazardAlert {
@@ -1681,7 +1744,12 @@ function reportStatusLabel(status: BlitzerAlert["reportStatus"]): string {
 }
 
 function formatBlitzerDistance(alert: BlitzerAlert): string {
-  return formatDistance(alert.distanceMeters, state.unitSystem);
+  return formatDistance(estimatedBlitzerDistanceMeters(alert), state.unitSystem);
+}
+
+function estimatedBlitzerDistanceMeters(alert: BlitzerAlert): number {
+  updateBlitzerDistanceEstimate(alert);
+  return Math.max(0, alert.interpolatedDistanceMeters);
 }
 
 function formatBlitzerSpeedLimit(alert: BlitzerAlert): string {
@@ -2437,7 +2505,7 @@ function blitzerGlassesSnapshot(): GuidanceSnapshot {
     hint: state.showControlHints ? "Press confirm | Down gone | Double back" : "",
     arrow: "--",
     nextStepIndex: 0,
-    distanceToStepMeters: alert?.distanceMeters ?? 0,
+    distanceToStepMeters: alert ? estimatedBlitzerDistanceMeters(alert) : 0,
     offRoute: false,
     speedLabel: formatCurrentSpeed(),
     showControlHints: state.showControlHints,
