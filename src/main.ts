@@ -24,6 +24,7 @@ type AppState = {
   guidanceView: "arrows" | "map";
   showSideRoads: boolean;
   showSpeed: boolean;
+  showControlHints: boolean;
   activeSearchField: "origin" | "destination" | null;
   bridgeConnected: boolean;
   locating: boolean;
@@ -72,6 +73,7 @@ const FAVORITES_STORAGE_KEY = "apexline-favorites";
 const UNIT_SYSTEM_STORAGE_KEY = "apexline-unit-system";
 const SIDE_ROADS_STORAGE_KEY = "apexline-side-roads";
 const SPEED_DISPLAY_STORAGE_KEY = "apexline-speed-display";
+const CONTROL_HINTS_STORAGE_KEY = "apexline-control-hints";
 
 const state: AppState = {
   mode: "motorcycle",
@@ -79,6 +81,7 @@ const state: AppState = {
   guidanceView: "arrows",
   showSideRoads: loadSideRoadsEnabled(),
   showSpeed: loadSpeedDisplayEnabled(),
+  showControlHints: loadControlHintsEnabled(),
   activeSearchField: null,
   bridgeConnected: false,
   locating: false,
@@ -203,6 +206,7 @@ function devDebugSnapshot(): Record<string, unknown> {
     unitSystem: state.unitSystem,
     showSideRoads: state.showSideRoads,
     showSpeed: state.showSpeed,
+    showControlHints: state.showControlHints,
     settingsIndex: state.glassesSettingsIndex,
     startFavoriteIndex: state.glassesStartFavoriteIndex,
     destinationFavoriteIndex: state.glassesDestinationFavoriteIndex,
@@ -260,6 +264,11 @@ function applyLaunchOptions(): void {
     saveSpeedDisplayEnabled();
   }
 
+  if (params.has("hints")) {
+    state.showControlHints = params.get("hints") !== "0";
+    saveControlHintsEnabled();
+  }
+
   if (params.has("devTools")) {
     state.devToolsEnabled = params.get("devTools") !== "0";
   }
@@ -276,14 +285,10 @@ function render(): void {
     <section class="shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Even Realities G2</p>
           <h1 id="app-title">Apexline</h1>
           <p class="tagline">Ride the line. Drive the pass.</p>
         </div>
         <div class="topbar-actions">
-          <span class="bridge ${state.bridgeConnected ? "on" : ""}">
-            ${state.bridgeConnected ? "Glasses live" : "Phone preview"}
-          </span>
           <details class="settings-menu">
             <summary aria-label="Settings" title="Settings">
               <span aria-hidden="true">⚙</span>
@@ -447,6 +452,10 @@ function renderSettingsMenu(): string {
         <label class="setting-toggle">
           <input type="checkbox" data-speed-display ${state.showSpeed ? "checked" : ""} />
           <span>Speed on glasses</span>
+        </label>
+        <label class="setting-toggle">
+          <input type="checkbox" data-control-hints ${state.showControlHints ? "checked" : ""} />
+          <span>Glasses control hints</span>
         </label>
       </div>
     </div>
@@ -770,6 +779,13 @@ function bindEvents(): void {
   document.querySelector<HTMLInputElement>("[data-speed-display]")?.addEventListener("change", (event) => {
     state.showSpeed = (event.target as HTMLInputElement).checked;
     saveSpeedDisplayEnabled();
+    void updateGlass();
+    render();
+  });
+
+  document.querySelector<HTMLInputElement>("[data-control-hints]")?.addEventListener("change", (event) => {
+    state.showControlHints = (event.target as HTMLInputElement).checked;
+    saveControlHintsEnabled();
     void updateGlass();
     render();
   });
@@ -1161,6 +1177,14 @@ function loadSpeedDisplayEnabled(): boolean {
 
 function saveSpeedDisplayEnabled(): void {
   window.localStorage.setItem(SPEED_DISPLAY_STORAGE_KEY, state.showSpeed ? "1" : "0");
+}
+
+function loadControlHintsEnabled(): boolean {
+  return window.localStorage.getItem(CONTROL_HINTS_STORAGE_KEY) === "1";
+}
+
+function saveControlHintsEnabled(): void {
+  window.localStorage.setItem(CONTROL_HINTS_STORAGE_KEY, state.showControlHints ? "1" : "0");
 }
 
 function formatCurrentSpeed(): string {
@@ -1756,8 +1780,12 @@ function currentSnapshot(): GuidanceSnapshot {
 function withDisplayPreferences(snapshot: GuidanceSnapshot): GuidanceSnapshot {
   return {
     ...snapshot,
+    hint: state.showControlHints
+      ? state.guidanceView === "map" ? "Click arrows | Double stop" : "Click map | Double stop"
+      : "",
     showSideRoads: state.showSideRoads,
-    showSpeed: state.showSpeed
+    showSpeed: state.showSpeed,
+    showControlHints: state.showControlHints
   };
 }
 
@@ -1770,12 +1798,13 @@ function routeReadyGlassesSnapshot(): GuidanceSnapshot {
     title: "Route Ready",
     primary: routeStatus,
     secondary: `${shortGlassLabel(origin)} -> ${shortGlassLabel(destination)}`,
-    tertiary: state.route ? "Press Start" : "Building automatically",
-    hint: "Double back",
+    tertiary: state.route ? "Start" : "Building",
+    hint: state.showControlHints ? "Click start | Double back" : "",
     arrow: "--",
     nextStepIndex: 0,
     distanceToStepMeters: 0,
-    offRoute: false
+    offRoute: false,
+    showControlHints: state.showControlHints
   };
 }
 
@@ -1783,17 +1812,21 @@ function homeGlassesSnapshot(): GuidanceSnapshot {
   const hasFavorites = glassesPickerOptions("destination").length > 0;
   const hasPhoneRoute = Boolean(state.position && state.selectedPlace);
   const gpsStatus = hasPhoneRoute ? "Route ready" : state.position ? "GPS ready" : "No GPS connection";
+  const homeHint = state.showControlHints
+    ? hasFavorites || state.position ? "Up settings | Down favorites" : "Up settings"
+    : "";
   return {
     active: false,
     title: "Apexline",
     primary: gpsStatus,
-    secondary: hasPhoneRoute ? "Start from phone" : hasFavorites ? "Long press favorites" : "Save favorites on phone",
-    tertiary: state.position ? "GPS start available" : "Current location unavailable",
-    hint: hasFavorites || state.position ? "Long select route" : "",
+    secondary: hasPhoneRoute ? "Phone route ready" : hasFavorites ? "Favorites ready" : "No favorites",
+    tertiary: state.position ? "GPS ready" : "GPS unavailable",
+    hint: homeHint,
     arrow: "--",
     nextStepIndex: 0,
     distanceToStepMeters: 0,
-    offRoute: false
+    offRoute: false,
+    showControlHints: state.showControlHints
   };
 }
 
@@ -1805,8 +1838,8 @@ function favoriteGlassesSnapshot(target: GlassPickerTarget): GuidanceSnapshot {
       ...makeIdleSnapshot(target === "origin" ? "No start options" : "No destinations"),
       title: target === "origin" ? "Choose Start" : "Choose Finish",
       secondary: target === "origin" ? "Use GPS or save favorites" : "Save favorites on phone",
-      tertiary: "Double back",
-      hint: "",
+      tertiary: "",
+      hint: state.showControlHints ? "Double back" : "",
       pickerItems: visibleGlassPickerItems(target)
     };
   }
@@ -1818,12 +1851,13 @@ function favoriteGlassesSnapshot(target: GlassPickerTarget): GuidanceSnapshot {
     title: target === "origin" ? "Choose Start" : "Choose Finish",
     primary: option.label,
     secondary: `${index}/${count}`,
-    tertiary: target === "origin" ? "Press to set start" : "Press to set finish",
-    hint: "Swipe scroll | Double back",
+    tertiary: "",
+    hint: state.showControlHints ? "Swipe scroll | Click select | Double back" : "",
     arrow: "--",
     nextStepIndex: 0,
     distanceToStepMeters: 0,
     offRoute: false,
+    showControlHints: state.showControlHints,
     pickerItems: visibleGlassPickerItems(target)
   };
 }
@@ -1835,12 +1869,13 @@ function glassesSettingsSnapshot(): GuidanceSnapshot {
     title: "Settings",
     primary: `${state.glassesSettingsIndex + 1}/${glassesSettings().length} ${setting.label}`,
     secondary: setting.value(),
-    tertiary: "Click changes | Swipe moves",
-    hint: "Double back",
+    tertiary: "",
+    hint: state.showControlHints ? "Swipe move | Click change | Double back" : "",
     arrow: "--",
     nextStepIndex: 0,
     distanceToStepMeters: 0,
-    offRoute: false
+    offRoute: false,
+    showControlHints: state.showControlHints
   };
 }
 
@@ -1855,7 +1890,7 @@ function mapGlassesSnapshot(snapshot: GuidanceSnapshot): GuidanceSnapshot {
     title: "Apex Map",
     primary: snapshot.offRoute ? "REROUTE NEEDED" : snapshot.primary,
     secondary: step ? `${snapshot.arrow} ${step.instruction}` : snapshot.secondary,
-    hint: "Map view | Double exits"
+    hint: state.showControlHints ? "Click arrows | Double stop" : ""
   };
 }
 
@@ -1876,6 +1911,13 @@ function handleGlassInput(action: GlassAction): void {
     if (action === "double") {
       state.glassesScreen = "home";
       cancelNavigation("Navigation stopped.");
+      return;
+    }
+
+    if (action === "press") {
+      state.guidanceView = state.guidanceView === "map" ? "arrows" : "map";
+      void updateGlass();
+      render();
       return;
     }
 
@@ -1905,8 +1947,31 @@ function handleGlassInput(action: GlassAction): void {
     return;
   }
 
-  if (action === "press" && state.position && state.selectedPlace) {
-    startGlassesNavigation();
+  if (action === "up") {
+    state.glassesScreen = "settings";
+    void updateGlass();
+    render();
+    return;
+  }
+
+  if (action === "press") {
+    if (state.position && state.selectedPlace) {
+      startGlassesNavigation();
+      return;
+    }
+
+    if (glassesPickerOptions("origin").length > 0) {
+      state.glassesScreen = "favoriteOrigin";
+      void updateGlass();
+      render();
+      return;
+    }
+  }
+
+  if (action === "down" && glassesPickerOptions("origin").length > 0) {
+    state.glassesScreen = "favoriteOrigin";
+    void updateGlass();
+    render();
     return;
   }
 

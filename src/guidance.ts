@@ -33,6 +33,7 @@ export type GuidanceSnapshot = {
   sideRoadBranches?: SideRoadPreviewBranch[];
   showSideRoads?: boolean;
   showSpeed?: boolean;
+  showControlHints?: boolean;
   speedLabel?: string;
   pickerItems?: GuidancePickerItem[];
 };
