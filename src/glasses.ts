@@ -1148,10 +1148,15 @@ function drawStandaloneBlitzerAlert(context: CanvasRenderingContext2D, alert: Gu
   context.textAlign = "center";
   context.fillText(trimImageLine(alert.distanceLabel, 12), 92, 166);
 
-  context.fillStyle = HUD_PRIMARY;
-  context.font = "bold 10px system-ui, sans-serif";
-  context.fillText(activePulse ? "SPEED CAMERA" : "CAMERA", 92, 181);
-  context.fillText("AHEAD", 92, 194);
+  if (activePulse) {
+    context.save();
+    context.globalAlpha = 0.48 + intro * (0.28 + wave * 0.2);
+    context.fillStyle = HUD_PRIMARY;
+    context.font = "bold 10px system-ui, sans-serif";
+    context.fillText("SPEED CAMERA", 92, 181);
+    context.fillText("AHEAD", 92, 194);
+    context.restore();
+  }
   context.restore();
 
   drawStandaloneBlitzerSpeed(context, alert.currentSpeedLabel ?? "--");
