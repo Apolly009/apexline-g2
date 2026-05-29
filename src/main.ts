@@ -2454,16 +2454,11 @@ function homeMenuGlassesSnapshot(): GuidanceSnapshot {
   const hasFavorites = glassesPickerOptions("destination").length > 0;
   const hasRoute = Boolean(state.position && state.selectedPlace);
   const homeVariant = state.glassesScreen === "homeTransition" ? "transition" : "menu";
-  const navigationStatus = hasRoute
-    ? "Phone route ready"
-    : hasFavorites
-      ? "Start on phone or favorites"
-      : "Start navigation on phone";
   return {
     active: false,
     title: "Choose Mode",
     primary: "Apexline",
-    secondary: state.glassesHomeSelectionIndex === 0 ? navigationStatus : state.position ? "GPS ready" : "No GPS",
+    secondary: hasRoute ? "Phone route ready" : hasFavorites ? "Favorites ready" : state.position ? "GPS ready" : "No GPS",
     tertiary: "",
     hint: state.showControlHints ? "Swipe move | Click select" : "",
     arrow: "--",
