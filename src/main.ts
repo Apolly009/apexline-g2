@@ -483,7 +483,7 @@ function render(): void {
     <section class="shell">
       <header class="topbar">
         <div>
-          <h1 id="app-title">Apexline</h1>
+          <h1 id="app-title">ApexLine</h1>
           <p class="tagline">Ride the line. Drive the pass.</p>
         </div>
         <div class="topbar-actions">
@@ -2082,7 +2082,7 @@ function routeReadyGlassesSnapshot(): GuidanceSnapshot {
 function splashGlassesSnapshot(): GuidanceSnapshot {
   return {
     active: false,
-    title: "Apexline",
+    title: "ApexLine",
     primary: "Ride the line",
     secondary: "Drive the pass",
     tertiary: "",
@@ -2117,7 +2117,7 @@ function homeMenuGlassesSnapshot(): GuidanceSnapshot {
   return {
     active: false,
     title: "Choose Mode",
-    primary: "Apexline",
+    primary: "ApexLine",
     secondary: hasRoute ? "Phone route ready" : hasFavorites ? "Favorites ready" : state.position ? "GPS ready" : "No GPS",
     tertiary: "",
     hint: state.showControlHints ? "Swipe move | Click select" : "",

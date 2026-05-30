@@ -70,7 +70,7 @@ export type GuidancePickerItem = {
 export function makeIdleSnapshot(status: string): GuidanceSnapshot {
   return {
     active: false,
-    title: "Apexline",
+    title: "ApexLine",
     primary: status,
     secondary: "Choose a destination on phone",
     tertiary: "Single press repeats | Double exits",

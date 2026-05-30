@@ -1,6 +1,6 @@
 # Even Hub Resubmission Checklist
 
-Use this before uploading Apexline after a review rejection.
+Use this before uploading ApexLine after a review rejection.
 
 ## Rejection Fixes
 
@@ -9,7 +9,7 @@ Use this before uploading Apexline after a review rejection.
 - The Even Hub listing should request Location, Local network, and Run
   background services permissions.
 - The glasses launch path must briefly show normal-process text:
-  `Apexline started` / `Continue on phone`.
+  `ApexLine started` / `Continue on phone`.
 - Listing screenshots must come from the latest Even Hub simulator and must use
   the transparent PNG files, not the black preview copies.
 

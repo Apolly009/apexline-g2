@@ -1,7 +1,7 @@
 {
   "package_id": "com.romanseemann.apexline",
   "edition": "202601",
-  "name": "Apexline",
+  "name": "ApexLine",
   "version": "0.1.1",
   "min_app_version": "2.2.1",
   "min_sdk_version": "0.0.10",

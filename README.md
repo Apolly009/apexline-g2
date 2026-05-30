@@ -1,4 +1,4 @@
-# Apexline
+# ApexLine
 
 Moto-first road navigation for Even Realities G2, built for riders and driving
 enthusiasts who care about the line, the pass, and the next good road. It
@@ -28,10 +28,10 @@ guidance tuned for motorcycle and spirited car use.
   phone compass, and G2-facing heading with bounded relative IMU yaw plus
   acceleration-lock assistance when matching phone/G2 motion is available.
 - Can show Blitzer.de Pro-style speed camera alerts when an external bridge
-  feeds alert distance and speed-limit data into Apexline. The app cannot read
+  feeds alert distance and speed-limit data into ApexLine. The app cannot read
   another app's iOS notifications directly from the EvenHub WebView.
 - Supports glasses/ring input:
-  - Cold boot shows a short Apexline splash, then flows into the glasses home
+  - Cold boot shows a short ApexLine splash, then flows into the glasses home
     menu. Tap/click skips the splash.
   - Home menu: swipe up/down moves between Navigation, Blitzer, and Settings;
     click selects, double press stays at home.
@@ -67,7 +67,7 @@ With the dev server running:
 evenhub-simulator --automation-port 9898 http://localhost:5173
 ```
 
-Developer tools are hidden in the normal phone UI. Tap the Apexline title five
+Developer tools are hidden in the normal phone UI. Tap the ApexLine title five
 times to toggle them for the current session, or open with `?devTools=1`.
 They reset to hidden on every fresh app load. Dev launch flags remain available
 for simulator testing, for example `?devRoute=1&view=map&autoDrive=1`.
@@ -104,14 +104,14 @@ press, and L is long press.
 Blitzer.de Pro is treated as an external alert source. A companion bridge can
 parse Blitzer.de Pro notification text or native alert data, then call
 `window.__apexlineBlitzerAlert(...)` or dispatch the `apexline-blitzer-alert`
-custom event with `{ distanceMeters, speedLimitKph, label }`. Apexline shows the
+custom event with `{ distanceMeters, speedLimitKph, label }`. ApexLine shows the
 alert while navigating and also has a standalone Blitzer screen on the glasses
 when the Blitzer setting is enabled. Reporting "still there" or "gone" is
 tracked locally for now; writing the report back into Blitzer.de Pro still needs
 a real companion/app integration path.
 
 The experimental iOS 26.5 accessory-notification bridge scaffold lives in
-`ios/ApexlineNotificationBridge`. It uses Apple's AccessorySetupKit,
+`ios/ApexLineNotificationBridge`. It uses Apple's AccessorySetupKit,
 AccessoryNotifications, and AccessoryTransportExtension APIs; see
 `docs/blitzer-notification-bridge.md` for the current architecture and
 remaining hardware/entitlement limitations.
