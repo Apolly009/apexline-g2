@@ -286,7 +286,8 @@ function routePreview(
   }
 
   const nearestIndex = nearestGeometryIndex(geometry, current);
-  const points = [current, ...geometry.slice(nearestIndex, nearestIndex + 30)];
+  const points = [current, ...geometry.slice(nearestIndex, Math.min(geometry.length, nearestIndex + 180))];
+  const scale = previewScaleMeters(lookaheadMeters);
   const preview: RoutePreviewPoint[] = [];
   let traveledMeters = 0;
 
@@ -302,8 +303,8 @@ function routePreview(
     const local = localMeters(current, points[index]);
     const rotated = rotateForHeading(local.x, local.y, headingDegrees);
     preview.push({
-      x: clamp(rotated.x / 320, -1, 1),
-      y: clamp(rotated.y / Math.max(lookaheadMeters, 220), -0.15, 1)
+      x: clamp(rotated.x / scale.lateral, -1, 1),
+      y: clamp(rotated.y / scale.forward, -0.15, 1)
     });
   }
 
@@ -316,14 +317,15 @@ function sideRoadPreview(
   headingDegrees: number,
   lookaheadMeters: number
 ): SideRoadPreviewBranch[] {
+  const scale = previewScaleMeters(lookaheadMeters);
   return branches
     .map((branch) => {
       const points = branch.points.map((point) => {
         const local = localMeters(current, point);
         const rotated = rotateForHeading(local.x, local.y, headingDegrees);
         return {
-          x: clamp(rotated.x / 320, -1.15, 1.15),
-          y: clamp(rotated.y / Math.max(lookaheadMeters, 220), -0.2, 1.1)
+          x: clamp(rotated.x / scale.lateral, -1.15, 1.15),
+          y: clamp(rotated.y / scale.forward, -0.2, 1.1)
         };
       });
 
@@ -336,6 +338,14 @@ function sideRoadPreview(
       branch.points.length > 1 &&
       branch.points.some((point) => point.y >= -0.08 && point.y <= 1.04 && Math.abs(point.x) <= 1.02)
     );
+}
+
+function previewScaleMeters(lookaheadMeters: number): { forward: number; lateral: number } {
+  const forward = Math.max(180, lookaheadMeters);
+  return {
+    forward,
+    lateral: clamp(forward * 0.56, 135, 390)
+  };
 }
 
 function nearestGeometryIndex(geometry: Coordinate[], current: Coordinate): number {

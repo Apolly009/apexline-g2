@@ -5,8 +5,9 @@ Use this before uploading ApexLine after a review rejection.
 ## Rejection Fixes
 
 - `app.json` must whitelist every bundled `https://` URL.
-- The glasses launch path must briefly show normal-process text:
-  `ApexLine started` / `Continue on phone`.
+- The glasses launch path should render the ApexLine HUD/home UI directly.
+  Do not reintroduce the old `ApexLine started` / `Continue on phone`
+  startup text because testers reported real glasses could stay stuck there.
 - Listing screenshots must come from the latest Even Hub simulator and must use
   the transparent PNG files, not the black preview copies.
 
