@@ -76,7 +76,12 @@ type GlassPickerOption = PlaceResult & {
 };
 type LocationRequestMode = "balanced" | "precise";
 type LocationDiagnostic = {
-  source: "watchPosition-initial" | "watchPosition-live" | "feature-check" | "secure-context";
+  source:
+    | "getCurrentPosition-initial"
+    | "watchPosition-initial-fallback"
+    | "watchPosition-live"
+    | "feature-check"
+    | "secure-context";
   target: "origin" | "destination";
   code: number | null;
   codeName: string;
@@ -1802,11 +1807,30 @@ function startLocationWatch(target: "origin" | "destination" = "origin"): void {
     positionWatchId = null;
   }
 
-  startInitialGpsWatch(target);
+  startInitialGpsRequest(target);
   updateLocationRequestUi(target);
 }
 
-function startInitialGpsWatch(target: "origin" | "destination"): void {
+function startInitialGpsRequest(target: "origin" | "destination"): void {
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      applyCurrentLocation(position, target);
+      updatePlannerUiAfterPositionChange();
+      void updateGlass();
+    },
+    (error) => {
+      if (error.code === error.PERMISSION_DENIED) {
+        handleInitialGpsError(target, "getCurrentPosition-initial", error);
+        return;
+      }
+
+      startInitialGpsWatchFallback(target, error);
+    },
+    locationOptions("precise")
+  );
+}
+
+function startInitialGpsWatchFallback(target: "origin" | "destination", previousError: GeolocationPositionError): void {
   positionWatchId = navigator.geolocation.watchPosition(
     (position) => {
       if (positionWatchId != null) {
@@ -1820,18 +1844,33 @@ function startInitialGpsWatch(target: "origin" | "destination"): void {
       void updateGlass();
     },
     (error) => {
-      state.locating = false;
-      state.locatingFor = null;
-      state.startWhenRouteReady = false;
-      state.lastLocationError = makeLocationDiagnostic("watchPosition-initial", target, error, error.message);
-      state.error = geolocationErrorMessage(error);
-      state.locationStatus = geolocationFallbackStatus(error, target);
-      updateLocationRequestUi(target);
-      updateRouteActions();
-      void updateGlass();
+      handleInitialGpsError(target, "watchPosition-initial-fallback", error);
     },
     locationOptions("precise")
   );
+
+  state.lastLocationError = makeLocationDiagnostic(
+    "getCurrentPosition-initial",
+    target,
+    previousError,
+    previousError.message
+  );
+}
+
+function handleInitialGpsError(
+  target: "origin" | "destination",
+  source: LocationDiagnostic["source"],
+  error: GeolocationPositionError
+): void {
+  state.locating = false;
+  state.locatingFor = null;
+  state.startWhenRouteReady = false;
+  state.lastLocationError = makeLocationDiagnostic(source, target, error, error.message);
+  state.error = geolocationErrorMessage(error);
+  state.locationStatus = geolocationFallbackStatus(error, target);
+  updateLocationRequestUi(target);
+  updateRouteActions();
+  void updateGlass();
 }
 
 function startLiveGpsWatch(): void {
@@ -2278,6 +2317,18 @@ async function startNavigation(): Promise<void> {
     return;
   }
 
+  const needsCurrentLocationStart = !state.position && isCurrentLocationStartSelected();
+  if (needsCurrentLocationStart) {
+    state.startWhenRouteReady = true;
+    state.error = null;
+    state.locationStatus = "Getting current location for start...";
+    if (!state.locating || state.locatingFor !== "origin") {
+      startLocationWatch("origin");
+    }
+    void updateGlass();
+    updateRouteActions();
+  }
+
   if (!state.selectedPlace) {
     await resolveTypedDestinationForNavigation();
   }
@@ -2287,12 +2338,7 @@ async function startNavigation(): Promise<void> {
   }
 
   if (!state.position) {
-    if (isCurrentLocationStartSelected()) {
-      state.startWhenRouteReady = true;
-      state.error = null;
-      state.locationStatus = "Getting current location for start...";
-      startLocationWatch("origin");
-      void updateGlass();
+    if (needsCurrentLocationStart) {
       updateRouteActions();
       return;
     }
@@ -2357,6 +2403,9 @@ async function resolveTypedDestinationForNavigation(): Promise<void> {
     applyDestination(destination);
     state.activeSearchField = null;
     state.locationStatus = `Destination set: ${destination.label}`;
+    if (state.startWhenRouteReady && state.position) {
+      void ensureRouteReady();
+    }
   } catch (error) {
     if (state.query.trim() === query) {
       state.error = `Address search failed: ${toMessage(error)}`;
