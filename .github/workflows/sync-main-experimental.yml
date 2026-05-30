@@ -1,0 +1,54 @@
+name: Sync main to experimental
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: sync-main-experimental
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Merge main into main-experimental
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out experimental branch
+        uses: actions/checkout@v4
+        with:
+          ref: main-experimental
+          fetch-depth: 0
+
+      - name: Configure Git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge main
+        run: |
+          git fetch origin main main-experimental
+          git merge --no-edit origin/main
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify merged build
+        run: |
+          npm run build
+          npm run test:heading
+          npm run network:check
+
+      - name: Push experimental branch
+        run: git push origin HEAD:main-experimental

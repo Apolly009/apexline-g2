@@ -125,6 +125,11 @@ Current experimental features are marked in the phone settings and glasses
 settings where applicable, especially Blitzer.de PRO bridge and G2-facing HUD
 heading.
 
+Every push to `main` runs the `Sync main to experimental` GitHub workflow. It
+merges `main` into `main-experimental`, runs the build, heading tests, and
+network whitelist check, then pushes the branch only if the merge and checks
+pass. If the workflow fails, `main-experimental` needs a manual conflict fix.
+
 See `docs/g2-heading-hardware-checklist.md` before treating G2-facing heading
 as hardware-verified.
 
