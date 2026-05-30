@@ -146,8 +146,9 @@ type BlitzerBridgeMessage = {
     reason?: string;
   };
 };
+type LocationRequestMode = "balanced" | "precise";
 type LocationDiagnostic = {
-  source: "getCurrentPosition" | "watchPosition" | "feature-check" | "secure-context";
+  source: "getCurrentPosition-balanced" | "getCurrentPosition-precise" | "watchPosition" | "feature-check" | "secure-context";
   target: "origin" | "destination";
   code: number | null;
   codeName: string;
@@ -2868,6 +2869,10 @@ function startLocationWatch(target: "origin" | "destination" = "origin"): void {
     positionWatchId = null;
   }
 
+  requestCurrentPosition(target, "balanced");
+}
+
+function requestCurrentPosition(target: "origin" | "destination", mode: LocationRequestMode): void {
   navigator.geolocation.getCurrentPosition(
     (position) => {
       applyCurrentLocation(position, target);
@@ -2878,17 +2883,26 @@ function startLocationWatch(target: "origin" | "destination" = "origin"): void {
       void updateGlass();
     },
     (error) => {
+      const source = mode === "balanced" ? "getCurrentPosition-balanced" : "getCurrentPosition-precise";
+      state.lastLocationError = makeLocationDiagnostic(source, target, error, error.message);
+
+      if (mode === "balanced" && error.code !== error.PERMISSION_DENIED) {
+        state.locationStatus = "Phone location did not answer yet. Trying precise GPS...";
+        updateStatusPanel();
+        requestCurrentPosition(target, "precise");
+        return;
+      }
+
       state.locating = false;
       state.locatingFor = null;
-      state.lastLocationError = makeLocationDiagnostic("getCurrentPosition", target, error, error.message);
       state.error = geolocationErrorMessage(error);
       state.locationStatus = geolocationFallbackStatus(error, target);
-      if (target === "origin") {
+      if (target === "origin" && error.code !== error.PERMISSION_DENIED) {
         startGpsWatch(false);
       }
       render();
     },
-    locationOptions()
+    locationOptions(mode)
   );
 }
 
@@ -2909,7 +2923,7 @@ function startGpsWatch(clearErrors = true): void {
       state.locationStatus = geolocationFallbackStatus(error, "origin");
       updatePlannerUiAfterPositionChange();
     },
-    locationOptions()
+    locationOptions("precise")
   );
 }
 
@@ -2981,7 +2995,15 @@ function handleOriginPositionChanged(): void {
   }
 }
 
-function locationOptions(): PositionOptions {
+function locationOptions(mode: LocationRequestMode): PositionOptions {
+  if (mode === "balanced") {
+    return {
+      enableHighAccuracy: false,
+      maximumAge: 30000,
+      timeout: 10000
+    };
+  }
+
   return {
     enableHighAccuracy: true,
     maximumAge: 0,
@@ -4579,7 +4601,7 @@ function locationSourceLabel(): string {
 
 function geolocationErrorMessage(error: GeolocationPositionError): string {
   if (error.code === error.PERMISSION_DENIED) {
-    return "The Even WebView did not grant GPS access. iOS may still show Location as allowed; reopen Even and retry location.";
+    return "The Even WebView did not grant GPS access. Your phone settings may still show Location as allowed; reopen Even and retry location.";
   }
 
   if (error.code === error.POSITION_UNAVAILABLE) {
@@ -4633,7 +4655,7 @@ function geolocationFallbackStatus(error: GeolocationPositionError, target: "ori
     : "Tap the Destination field, then tap the map to choose a destination.";
 
   if (error.code === error.PERMISSION_DENIED) {
-    return `GPS blocked by the app WebView. Restart Even/phone, confirm Precise Location, then retry. ${fallback}`;
+    return `GPS was denied by the app WebView. Fully quit and reopen Even, confirm precise location is enabled, then retry. ${fallback}`;
   }
 
   if (error.code === error.POSITION_UNAVAILABLE) {
@@ -4649,7 +4671,7 @@ function geolocationFallbackStatus(error: GeolocationPositionError, target: "ori
 
 function locationTroubleshootingHint(diagnostic: LocationDiagnostic): string {
   if (diagnostic.codeName === "PERMISSION_DENIED") {
-    return "Check iOS Settings > Apps > Even Realities > Location, enable Precise Location, fully quit and reopen Even, then try Use current location again.";
+    return "Check phone settings for Even location access, enable precise location, fully quit and reopen Even, then try Use current location again. On Android this can still fail if the host WebView denies the plugin request.";
   }
 
   if (diagnostic.codeName === "POSITION_UNAVAILABLE") {
