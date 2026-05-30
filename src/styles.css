@@ -550,12 +550,17 @@ h1 {
 .error-row {
   display: flex;
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .error-help {
   position: relative;
   flex: 0 0 auto;
+}
+
+.error-help[open] {
+  flex-basis: 100%;
 }
 
 .error-help summary {
@@ -582,12 +587,10 @@ h1 {
 }
 
 .error-help div {
-  position: absolute;
-  right: 0;
-  z-index: 1200;
+  position: static;
   display: grid;
   gap: 5px;
-  width: min(360px, calc(100vw - 42px));
+  width: 100%;
   margin-top: 8px;
   border: 1px solid rgba(255, 194, 184, 0.28);
   border-radius: 8px;
