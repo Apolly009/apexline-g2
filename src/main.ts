@@ -2640,9 +2640,7 @@ function startLocationWatch(target: "origin" | "destination" = "origin"): void {
       state.locating = false;
       state.locatingFor = null;
       state.error = geolocationErrorMessage(error);
-      state.locationStatus = target === "origin"
-        ? "Phone GPS unavailable. Tap the Start field, then tap the map to choose a starting point."
-        : "Phone GPS unavailable. Tap the Destination field, then tap the map to choose a destination.";
+      state.locationStatus = geolocationFallbackStatus(error, target);
       if (target === "origin") {
         startGpsWatch(false);
       }
@@ -2665,7 +2663,7 @@ function startGpsWatch(clearErrors = true): void {
       if (clearErrors) {
         state.error = geolocationErrorMessage(error);
       }
-      state.locationStatus = "Waiting for GPS. Keep the Even app open and confirm phone location permission.";
+      state.locationStatus = geolocationFallbackStatus(error, "origin");
       render();
     },
     locationOptions()
@@ -4260,18 +4258,38 @@ function locationSourceLabel(): string {
 
 function geolocationErrorMessage(error: GeolocationPositionError): string {
   if (error.code === error.PERMISSION_DENIED) {
-    return "Location permission was denied. Enable Location for the Even Realities app, then try again.";
+    return "The Even WebView did not grant GPS access. iOS may still show Location as allowed; reopen Even and retry location.";
   }
 
   if (error.code === error.POSITION_UNAVAILABLE) {
-    return "The phone could not determine its location right now.";
+    return "The phone could not provide a GPS fix right now.";
   }
 
   if (error.code === error.TIMEOUT) {
-    return "Location timed out. Keep the Even app open on screen and try again.";
+    return "Location timed out before the phone returned a fix.";
   }
 
   return error.message || "Location failed.";
+}
+
+function geolocationFallbackStatus(error: GeolocationPositionError, target: "origin" | "destination"): string {
+  const fallback = target === "origin"
+    ? "Tap the Start field, then tap the map to choose a starting point."
+    : "Tap the Destination field, then tap the map to choose a destination.";
+
+  if (error.code === error.PERMISSION_DENIED) {
+    return `GPS blocked by the app WebView. Restart Even/phone, confirm Precise Location, then retry. ${fallback}`;
+  }
+
+  if (error.code === error.POSITION_UNAVAILABLE) {
+    return `Waiting for a phone GPS fix. Try outdoors or reopen Even, then retry. ${fallback}`;
+  }
+
+  if (error.code === error.TIMEOUT) {
+    return `GPS request timed out. Keep Even open on screen and retry. ${fallback}`;
+  }
+
+  return `Phone GPS unavailable. ${fallback}`;
 }
 
 function escapeHtml(value: string): string {
