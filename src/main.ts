@@ -676,6 +676,15 @@ function updateStatusPanel(): void {
   }
 }
 
+function updateLocationRequestUi(target: "origin" | "destination"): void {
+  if (target === "origin") {
+    updateOriginResultsSlot();
+  } else {
+    updateResultsSlot();
+  }
+  updateStatusPanel();
+}
+
 function updatePlannerUiAfterPositionChange(): void {
   const originInput = document.querySelector<HTMLInputElement>("#origin");
   if (originInput && document.activeElement !== originInput) {
@@ -1781,7 +1790,6 @@ function startLocationWatch(target: "origin" | "destination" = "origin"): void {
   state.locationStatus = target === "origin"
     ? "Requesting phone location for start..."
     : "Requesting phone location for destination...";
-  render();
 
   if (positionWatchId != null) {
     navigator.geolocation.clearWatch(positionWatchId);
@@ -1789,6 +1797,7 @@ function startLocationWatch(target: "origin" | "destination" = "origin"): void {
   }
 
   requestCurrentPosition(target, "balanced");
+  updateLocationRequestUi(target);
 }
 
 function requestCurrentPosition(target: "origin" | "destination", mode: LocationRequestMode): void {
@@ -1819,7 +1828,7 @@ function requestCurrentPosition(target: "origin" | "destination", mode: Location
       if (target === "origin" && error.code !== error.PERMISSION_DENIED) {
         startGpsWatch(false);
       }
-      render();
+      updateLocationRequestUi(target);
     },
     locationOptions(mode)
   );
