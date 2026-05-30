@@ -1,0 +1,41 @@
+{
+  "package_id": "com.romanseemann.apexbike",
+  "edition": "202601",
+  "name": "Apex Bike",
+  "version": "0.1.1",
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.10",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "location",
+      "desc": "Uses current phone location to calculate and update bicycle guidance."
+    },
+    {
+      "name": "network",
+      "desc": "Searches destinations, fetches bicycle routes, loads map tiles, and loads the companion screen visual.",
+      "whitelist": [
+        "https://nominatim.openstreetmap.org",
+        "https://nominatim.openstreetmap.org/search",
+        "https://nominatim.openstreetmap.org/reverse",
+        "https://router.project-osrm.org",
+        "https://router.project-osrm.org/route/v1/bike",
+        "https://router.project-osrm.org/route/v1/bike/${a}",
+        "https://leafletjs.com",
+        "https://www.openstreetmap.org",
+        "https://www.openstreetmap.org/copyright",
+        "https://overpass-api.de",
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://a.tile.openstreetmap.org",
+        "https://b.tile.openstreetmap.org",
+        "https://c.tile.openstreetmap.org",
+        "https://images.unsplash.com",
+        "https://images.unsplash.com/photo-1485965120184-e220f721d03e?auto=format&fit=crop&w=1600&q=80"
+      ]
+    }
+  ],
+  "supported_languages": ["en"]
+}
