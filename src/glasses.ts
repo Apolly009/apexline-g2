@@ -513,6 +513,7 @@ function drawMaskedText(
       image.data[index + 3] = 0;
     }
   }
+  cleanTextMaskArtifacts(image, canvasWidth, canvasHeight, fontSize);
   scratchContext.putImageData(image, 0, 0);
 
   const targetX = context.textAlign === "right"
@@ -522,6 +523,66 @@ function drawMaskedText(
       : Math.round(x - padding);
   const targetY = Math.round(y - scratchBaseline);
   context.drawImage(scratch, targetX, targetY);
+}
+
+function cleanTextMaskArtifacts(image: ImageData, width: number, height: number, fontSize: number): void {
+  if (fontSize < 18) {
+    return;
+  }
+
+  const data = image.data;
+  const remove = new Uint8Array(width * height);
+  const alphaAt = (x: number, y: number): boolean => {
+    if (x < 0 || x >= width || y < 0 || y >= height) {
+      return false;
+    }
+    return data[(y * width + x) * 4 + 3] > 0;
+  };
+
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const index = y * width + x;
+      if (data[index * 4 + 3] === 0) {
+        continue;
+      }
+
+      const left = alphaAt(x - 1, y);
+      const right = alphaAt(x + 1, y);
+      const up = alphaAt(x, y - 1);
+      const down = alphaAt(x, y + 1);
+      const upLeft = alphaAt(x - 1, y - 1);
+      const upRight = alphaAt(x + 1, y - 1);
+      const downLeft = alphaAt(x - 1, y + 1);
+      const downRight = alphaAt(x + 1, y + 1);
+      const horizontal = left || right;
+      const vertical = up || down;
+      const above = up || upLeft || upRight;
+      const below = down || downLeft || downRight;
+      const leftCluster = left || upLeft || downLeft;
+      const rightCluster = right || upRight || downRight;
+
+      if (
+        (!horizontal && !above && below) ||
+        (!horizontal && !below && above) ||
+        (!vertical && !leftCluster && rightCluster) ||
+        (!vertical && !rightCluster && leftCluster)
+      ) {
+        remove[index] = 1;
+      }
+    }
+  }
+
+  for (let index = 0; index < remove.length; index += 1) {
+    if (remove[index] === 0) {
+      continue;
+    }
+
+    const dataIndex = index * 4;
+    data[dataIndex] = 0;
+    data[dataIndex + 1] = 0;
+    data[dataIndex + 2] = 0;
+    data[dataIndex + 3] = 0;
+  }
 }
 
 function hudPixelLevel(intensity: number): number {
