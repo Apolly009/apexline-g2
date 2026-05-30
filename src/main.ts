@@ -962,6 +962,7 @@ function renderExperimentalNotice(): string {
           </li>
           <li>
             <strong>Blitzer.de PRO bridge:</strong> External bridge messages can show speed-camera alerts on the HUD.
+            This does not read Blitzer.de PRO directly inside the Even Hub plugin; it relies on a separate companion app/bridge to forward supported alert data into ApexLine.
             Distance is estimated smoothly between sparse notification updates using current speed, then corrected when a new alert update arrives.
           </li>
           <li>
