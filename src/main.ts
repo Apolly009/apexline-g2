@@ -570,17 +570,17 @@ function render(): void {
           <div id="map"></div>
         </section>
 
-        <div class="actions">
-          <button class="primary" id="start-nav" type="button" ${canStartNavigation() ? "" : "disabled"}>
-            ${state.autoRerouting ? "Recalculating..." : state.navigating ? "Navigation running" : state.routing && state.startWhenRouteReady ? "Starting..." : "Start navigation"}
-          </button>
-          ${canCancelNavigation() ? `<button class="danger" id="cancel-route" type="button">${state.routing ? "Cancel route" : "Stop navigation"}</button>` : ""}
+        <div class="actions" id="route-actions">
+          ${renderRouteActions()}
         </div>
 
         ${state.devToolsEnabled ? `
           <div class="dev-tools" aria-label="Developer tools">
             <button class="dev-route" id="dev-route" type="button">
               Dev test route: Hulftegg to Schwaegalp
+            </button>
+            <button class="dev-route secondary" id="dev-gps" type="button">
+              Simulate GPS at Hulftegg
             </button>
             <button class="dev-route" id="dev-drive" type="button">
               ${state.devDriving ? "Pause simulated ride" : "Simulate riding"}
@@ -589,8 +589,8 @@ function render(): void {
           </div>
         ` : ""}
 
-        ${renderErrorPanel()}
-        <p class="location-note">${escapeHtml(state.locationStatus)}</p>
+        <div id="error-slot">${renderErrorPanel()}</div>
+        <p class="location-note" id="location-note">${escapeHtml(state.locationStatus)}</p>
       </section>
 
       <section class="panel favorites-panel" aria-label="Favorite places">
@@ -647,6 +647,62 @@ function updateStatsCard(): void {
   if (guidanceCard) {
     guidanceCard.innerHTML = renderGuidancePanel();
   }
+}
+
+function updateRouteActions(): void {
+  const actions = document.querySelector<HTMLElement>("#route-actions");
+  if (!actions) {
+    return;
+  }
+
+  actions.innerHTML = renderRouteActions();
+  document.querySelector<HTMLButtonElement>("#start-nav")?.addEventListener("click", () => {
+    void startNavigation();
+  });
+  document.querySelector<HTMLButtonElement>("#cancel-route")?.addEventListener("click", () => {
+    cancelNavigation(state.routing ? "Route request cancelled." : "Navigation stopped.");
+  });
+}
+
+function updateStatusPanel(): void {
+  const errorSlot = document.querySelector<HTMLElement>("#error-slot");
+  if (errorSlot) {
+    errorSlot.innerHTML = renderErrorPanel();
+  }
+
+  const locationNote = document.querySelector<HTMLElement>("#location-note");
+  if (locationNote) {
+    locationNote.textContent = state.locationStatus;
+  }
+}
+
+function updatePlannerUiAfterPositionChange(): void {
+  const originInput = document.querySelector<HTMLInputElement>("#origin");
+  if (originInput && document.activeElement !== originInput) {
+    originInput.value = originInputValue();
+  }
+
+  updateOriginResultsSlot();
+  updateResultsSlot();
+  updateStatsCard();
+  updateRouteActions();
+  updateStatusPanel();
+  if (map) {
+    syncCurrentMarker();
+    syncDestinationMarker();
+    syncRouteLine();
+  } else {
+    syncMap();
+  }
+}
+
+function renderRouteActions(): string {
+  return `
+    <button class="primary" id="start-nav" type="button" ${canStartNavigation() ? "" : "disabled"}>
+      ${state.autoRerouting ? "Recalculating..." : state.navigating ? "Navigation running" : state.routing && state.startWhenRouteReady ? "Starting..." : "Start navigation"}
+    </button>
+    ${canCancelNavigation() ? `<button class="danger" id="cancel-route" type="button">${state.routing ? "Cancel route" : "Stop navigation"}</button>` : ""}
+  `;
 }
 
 function renderSettingsMenu(): string {
@@ -870,7 +926,7 @@ function renderResults(): string {
   }
 
   if (state.results.length === 0) {
-    const hint = state.query.trim().length >= 3 ? "No destination selected" : "Type a destination, use current location, or tap the map.";
+    const hint = state.query.trim().length >= 3 ? "No address matches yet. Try a more specific place, city, or street." : "Type a destination, use current location, or tap the map.";
     return `<div class="results">${useCurrentButton}${renderFavoriteChoices("destination")}<div class="muted result-note">${hint}</div></div>`;
   }
 
@@ -1105,6 +1161,8 @@ function bindEvents(): void {
     updateOriginResultsSlot();
     updateResultsSlot();
     updateStatsCard();
+    updateRouteActions();
+    updateStatusPanel();
     syncCurrentMarker();
     syncRouteLine();
   });
@@ -1125,6 +1183,8 @@ function bindEvents(): void {
     updateOriginResultsSlot();
     updateResultsSlot();
     updateStatsCard();
+    updateRouteActions();
+    updateStatusPanel();
     syncRouteLine();
   });
 
@@ -1134,7 +1194,7 @@ function bindEvents(): void {
   bindDevGlassesKeyboard();
 
   document.querySelector<HTMLButtonElement>("#start-nav")?.addEventListener("click", () => {
-    startNavigation();
+    void startNavigation();
   });
 
   document.querySelector<HTMLButtonElement>("#cancel-route")?.addEventListener("click", () => {
@@ -1143,6 +1203,10 @@ function bindEvents(): void {
 
   document.querySelector<HTMLButtonElement>("#dev-route")?.addEventListener("click", () => {
     void buildDevTestRoute();
+  });
+
+  document.querySelector<HTMLButtonElement>("#dev-gps")?.addEventListener("click", () => {
+    simulateDevGpsLocation();
   });
 
   document.querySelector<HTMLButtonElement>("#dev-drive")?.addEventListener("click", () => {
@@ -1652,6 +1716,7 @@ async function runSearch(): Promise<void> {
       state.searching = false;
     }
     updateResultsSlot();
+    updateStatusPanel();
   }
 }
 
@@ -1683,6 +1748,7 @@ async function runOriginSearch(): Promise<void> {
       state.originSearching = false;
     }
     updateOriginResultsSlot();
+    updateStatusPanel();
   }
 }
 
@@ -1727,6 +1793,8 @@ function startLocationWatch(target: "origin" | "destination" = "origin"): void {
       if (target === "origin") {
         startGpsWatch();
       }
+      updatePlannerUiAfterPositionChange();
+      void updateGlass();
     },
     (error) => {
       state.locating = false;
@@ -1748,7 +1816,7 @@ function startGpsWatch(clearErrors = true): void {
     (position) => {
       applyGpsOrigin(position);
       void updateGlass();
-      render();
+      updatePlannerUiAfterPositionChange();
     },
     (error) => {
       state.locating = false;
@@ -1758,7 +1826,7 @@ function startGpsWatch(clearErrors = true): void {
         state.error = geolocationErrorMessage(error);
       }
       state.locationStatus = geolocationFallbackStatus(error, "origin");
-      render();
+      updatePlannerUiAfterPositionChange();
     },
     locationOptions()
   );
@@ -1989,6 +2057,17 @@ async function buildDevTestRoute(): Promise<void> {
   }
 }
 
+function simulateDevGpsLocation(): void {
+  applySimulatedOrigin(DEV_TEST_ORIGIN, DEV_TEST_DESTINATION);
+  state.activeSearchField = "destination";
+  state.locationStatus = "Dev simulated GPS at Hulftegg Passhoehe. Type a destination or tap the map.";
+  render();
+  void updateGlass();
+  if (state.selectedPlace) {
+    void ensureRouteReady();
+  }
+}
+
 async function toggleDevDriving(): Promise<void> {
   if (state.devDriving) {
     stopDevDriving("Simulated ride paused.");
@@ -2147,8 +2226,23 @@ function updateDevSpeedReadout(): void {
   }
 }
 
-function startNavigation(): void {
-  if (!state.position || !state.selectedPlace || state.navigating) {
+async function startNavigation(): Promise<void> {
+  if (state.navigating || state.routing) {
+    return;
+  }
+
+  if (!state.position) {
+    state.error = "Choose a start point or use current location first.";
+    state.locationStatus = "Start is missing. Use current location, pick a favorite, or tap the map.";
+    render();
+    return;
+  }
+
+  if (!state.selectedPlace) {
+    await resolveTypedDestinationForNavigation();
+  }
+
+  if (!state.selectedPlace) {
     return;
   }
 
@@ -2169,6 +2263,56 @@ function startNavigation(): void {
   void updateRuntimeKeepAlive();
   void updateGlass();
   render();
+}
+
+async function resolveTypedDestinationForNavigation(): Promise<void> {
+  const query = state.query.trim();
+  if (query.length < 3) {
+    state.error = "Choose a destination first.";
+    state.locationStatus = "Destination is missing. Search, pick a favorite, or tap the map.";
+    render();
+    return;
+  }
+
+  state.searching = true;
+  state.error = null;
+  state.locationStatus = "Searching destination...";
+  updateResultsSlot();
+  updateStatusPanel();
+  updateRouteActions();
+
+  try {
+    const results = await searchPlaces(query);
+    if (state.query.trim() !== query) {
+      return;
+    }
+
+    state.results = results;
+    const destination = results[0];
+    if (!destination) {
+      state.error = `No addresses found for "${query}". Try a more specific place, city, or street.`;
+      state.locationStatus = "Destination search returned no matches.";
+      return;
+    }
+
+    applyDestination(destination);
+    state.activeSearchField = null;
+    state.locationStatus = `Destination set: ${destination.label}`;
+  } catch (error) {
+    if (state.query.trim() === query) {
+      state.error = `Address search failed: ${toMessage(error)}`;
+      state.locationStatus = "Destination search failed. Check network access or try a simpler address.";
+      state.results = [];
+    }
+  } finally {
+    if (state.query.trim() === query) {
+      state.searching = false;
+    }
+    updateResultsSlot();
+    updateStatusPanel();
+    updateRouteActions();
+    syncDestinationMarker();
+  }
 }
 
 async function updateGlass(): Promise<void> {
@@ -2721,7 +2865,7 @@ function startGlassesNavigation(): void {
     return;
   }
 
-  startNavigation();
+  void startNavigation();
 }
 
 function glassesSettings(): Array<{ label: string; value: () => string; toggle: () => void }> {
@@ -2855,7 +2999,7 @@ function shortGlassLabel(label: string): string {
 }
 
 function canStartNavigation(): boolean {
-  return Boolean(state.position && state.selectedPlace && !state.navigating);
+  return Boolean(state.position && !state.navigating && !state.routing && (state.selectedPlace || state.query.trim().length >= 3));
 }
 
 function syncMap(focusDestination = false): void {
