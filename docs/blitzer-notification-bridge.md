@@ -57,11 +57,10 @@ fallback pass detector: once the interpolated distance reaches zero, the alert
 clears after roughly 250 m of additional travel or after a short zero-distance
 timeout if speed data is unavailable.
 
-Screen-off behavior still depends on the host app/native runtime. Apexline now
-requests a screen wake lock during active navigation or active Blitzer alerts
-where the WebView supports it, and warns when the page becomes hidden, but a
-manual phone lock can still suspend JavaScript/GPS if EvenHub does not provide
-background execution.
+Apexline requests the Even Hub background-services permission in the Hub listing
+and also requests a screen wake lock during active navigation or active Blitzer
+alerts where the WebView supports it. Keep `min_app_version` aligned with Even
+host releases that include the locked-phone/background plug-in fixes.
 
 ## Hard Limitation
 

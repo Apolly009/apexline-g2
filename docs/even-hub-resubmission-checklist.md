@@ -19,6 +19,18 @@ npm run release:check
 This runs the build, whitelist scan, listing screenshot validation, and package
 step.
 
+## Hub Listing Permissions
+
+Select these permissions in the Even Hub listing form:
+
+- Location
+- Local network
+- Run background services
+
+Keep `app.json` limited to CLI-supported package permissions. The Hub listing
+permission picker can expose additional review/runtime permissions that are not
+accepted by the local package schema.
+
 ## Screenshot Capture
 
 Start the app and latest simulator:

@@ -493,13 +493,6 @@ function installRuntimeKeepAliveHandlers(): void {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       void updateRuntimeKeepAlive();
-      return;
-    }
-
-    if (shouldKeepRuntimeAwake()) {
-      state.locationStatus = "Phone display locked or hidden. iOS may pause GPS/HUD updates unless Even keeps Apexline alive.";
-      void updateGlass();
-      render();
     }
   });
 }

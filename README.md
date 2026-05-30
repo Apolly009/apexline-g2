@@ -137,10 +137,8 @@ See `docs/roadmap.md` for planned follow-up features.
 
 ## Build and pack
 
-`app.json` requires Even Realities app `2.2.1` or newer. Earlier host app
-versions had known Even Hub locked-phone/background suspension bugs, which can
-freeze navigation and Blitzer distance updates after the phone display turns
-off.
+`app.json` requires Even Realities app `2.2.1` or newer for the latest Even Hub
+background plug-in fixes.
 
 ```bash
 npm run build
