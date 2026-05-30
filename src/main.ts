@@ -1,4 +1,4 @@
-import { makeGuidanceSnapshot, makeIdleSnapshot, type GuidanceHazardAlert, type GuidanceSnapshot, type PositionSample } from "./guidance";
+import { makeGuidanceSnapshot, makeIdleSnapshot, type GuidanceHazardAlert, type GuidanceSnapshot, type PositionSample, type SideRoadDisplayMode } from "./guidance";
 import { GlassDisplay, type GlassImuSample } from "./glasses";
 import {
   advanceBlitzerDistanceEstimate,
@@ -40,6 +40,8 @@ type AppState = {
   guidanceView: "arrows" | "map";
   headingSource: "travel" | "phone" | "glasses";
   showSideRoads: boolean;
+  sideRoadMode: SideRoadDisplayMode;
+  dynamicZoom: boolean;
   showSpeed: boolean;
   showControlHints: boolean;
   nightMode: boolean;
@@ -177,6 +179,7 @@ const FAVORITES_ENVELOPE_STORAGE_KEY = "apexline-favorites-v2";
 const UNIT_SYSTEM_STORAGE_KEY = "apexline-unit-system";
 const HEADING_SOURCE_STORAGE_KEY = "apexline-heading-source";
 const SIDE_ROADS_STORAGE_KEY = "apexline-side-roads";
+const DYNAMIC_ZOOM_STORAGE_KEY = "apexline-dynamic-zoom";
 const SPEED_DISPLAY_STORAGE_KEY = "apexline-speed-display";
 const CONTROL_HINTS_STORAGE_KEY = "apexline-control-hints";
 const NIGHT_MODE_STORAGE_KEY = "apexline-night-mode";
@@ -205,7 +208,9 @@ const state: AppState = {
   unitSystem: loadUnitSystem(),
   guidanceView: "arrows",
   headingSource: loadHeadingSource(),
-  showSideRoads: loadSideRoadsEnabled(),
+  sideRoadMode: loadSideRoadMode(),
+  showSideRoads: loadSideRoadMode() !== "off",
+  dynamicZoom: loadDynamicZoomEnabled(),
   showSpeed: loadSpeedDisplayEnabled(),
   showControlHints: loadControlHintsEnabled(),
   nightMode: loadNightModeEnabled(),
@@ -584,7 +589,9 @@ function devDebugSnapshot(): Record<string, unknown> {
     lastAccelerationLockAgeMs: state.lastAccelerationLockAt > 0 ? Date.now() - state.lastAccelerationLockAt : null,
     mode: state.mode,
     unitSystem: state.unitSystem,
-    showSideRoads: state.showSideRoads,
+    sideRoadMode: state.sideRoadMode,
+    showSideRoads: state.sideRoadMode !== "off",
+    dynamicZoom: state.dynamicZoom,
     showSpeed: state.showSpeed,
     showControlHints: state.showControlHints,
     arrowLayout: state.arrowLayout,
@@ -725,13 +732,22 @@ function applyLaunchOptions(): void {
   }
 
   if (params.has("sideRoads")) {
-    state.showSideRoads = params.get("sideRoads") !== "0";
-    saveSideRoadsEnabled();
+    setSideRoadMode(params.get("sideRoads") === "0" ? "off" : "larger");
+  }
+
+  const sideRoadMode = params.get("sideRoadMode");
+  if (sideRoadMode === "off" || sideRoadMode === "intersections" || sideRoadMode === "larger") {
+    setSideRoadMode(sideRoadMode);
   }
 
   if (params.has("speed")) {
     state.showSpeed = params.get("speed") !== "0";
     saveSpeedDisplayEnabled();
+  }
+
+  if (params.has("dynamicZoom")) {
+    state.dynamicZoom = params.get("dynamicZoom") !== "0";
+    saveDynamicZoomEnabled();
   }
 
   if (params.has("hints")) {
@@ -1025,21 +1041,25 @@ function renderExperimentalNotice(): string {
           This version includes experimental features and has not yet been personally verified by the developer on physical Even Realities G2 glasses.
           First hardware checks are scheduled for next week, so UI placement, readability, ring/glasses controls, and routing feedback are especially useful.
         </p>
-        <p class="experimental-notice-subhead">New in this experimental set:</p>
-        <ul>
-          <li>
-            <strong>HUD heading:</strong> Travel is the safe default. Phone compass aims the HUD from the phone heading.
-            G2 facing tries to keep the HUD aligned with where the glasses point by combining phone/course heading with G2 IMU changes; treat it as unverified and tell us if it drifts or feels wrong.
-          </li>
-          <li>
-            <strong>Blitzer.de PRO bridge:</strong> External bridge messages can show speed-camera alerts on the HUD.
-            This does not read Blitzer.de PRO directly inside the Even Hub plugin; it relies on a separate companion app/bridge to forward supported alert data into ApexLine.
-            Distance is estimated smoothly between sparse notification updates using current speed, then corrected when a new alert update arrives.
-          </li>
-          <li>
-            <strong>Background/runtime guard:</strong> Active routing, simulated drives, and active alerts request the Even Hub background-service path so they can keep updating more reliably.
-          </li>
-        </ul>
+        <details class="experimental-notice-details">
+          <summary>New in this experimental set</summary>
+          <ul>
+            <li>
+              <strong>Dynamic HUD zoom:</strong> Optional speed-based map scaling shows farther ahead at higher speeds and closer detail at slower speeds.
+            </li>
+            <li>
+              <strong>Road context modes:</strong> Choose Off, Turns, or Larger roads to control how much non-route intersection context appears on the HUD.
+            </li>
+            <li>
+              <strong>HUD heading:</strong> Travel is the safe default. Phone compass aims the HUD from the phone heading.
+              G2 facing combines phone/course heading with G2 IMU changes; treat it as unverified and report drift or odd alignment.
+            </li>
+            <li>
+              <strong>Blitzer.de PRO bridge:</strong> External bridge messages can show speed-camera alerts on the HUD.
+              This relies on a separate companion app/bridge to forward supported alert data into ApexLine.
+            </li>
+          </ul>
+        </details>
         <p>
           To test routing indoors, tap the ApexLine title five times, scroll below the map, then use the dev test route.
           It simulates Hulftegg to Schwaegalp and lets you adjust speed while the glasses HUD is running.
@@ -1082,9 +1102,17 @@ function renderSettingsMenu(): string {
             <span class="setting-note">${escapeHtml(headingStatusSummary())}</span>
           ` : `<span class="setting-note">Uses GPS course or simulated route heading.</span>`}
         </div>
-        <label class="setting-toggle">
-          <input type="checkbox" data-side-roads ${state.showSideRoads ? "checked" : ""} />
-          <span>Intersection side roads</span>
+        <div class="setting-group">
+          <span>Road context</span>
+          <div class="segmented-row" role="group" aria-label="HUD road context">
+            <button class="view-mode ${state.sideRoadMode === "off" ? "active" : ""}" data-side-road-mode="off" type="button">Off</button>
+            <button class="view-mode ${state.sideRoadMode === "intersections" ? "active" : ""}" data-side-road-mode="intersections" type="button">Turns</button>
+            <button class="view-mode ${state.sideRoadMode === "larger" ? "active" : ""}" data-side-road-mode="larger" type="button">Larger roads</button>
+          </div>
+        </div>
+        <label class="setting-toggle experimental-setting">
+          <input type="checkbox" data-dynamic-zoom ${state.dynamicZoom ? "checked" : ""} />
+          <span>Dynamic zoom <em class="experimental-chip">Experimental</em></span>
         </label>
         <label class="setting-toggle">
           <input type="checkbox" data-speed-display ${state.showSpeed ? "checked" : ""} />
@@ -1380,7 +1408,7 @@ function renderGuidancePanel(): string {
   }
 
   const snapshot = withBlitzerAlert(withDisplayPreferences(
-    makeGuidanceSnapshot(state.route, positionForGuidance(state.position), state.mode, state.nextStepIndex, state.unitSystem)
+    makeGuidanceSnapshot(state.route, positionForGuidance(state.position), state.mode, state.nextStepIndex, state.unitSystem, state.sideRoadMode, state.dynamicZoom)
   ));
   if (state.guidanceView === "map") {
     return `
@@ -1504,9 +1532,20 @@ function bindEvents(): void {
     });
   });
 
-  document.querySelector<HTMLInputElement>("[data-side-roads]")?.addEventListener("change", (event) => {
-    state.showSideRoads = (event.target as HTMLInputElement).checked;
-    saveSideRoadsEnabled();
+  document.querySelectorAll<HTMLButtonElement>("[data-side-road-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const mode = button.dataset.sideRoadMode;
+      if (mode === "off" || mode === "intersections" || mode === "larger") {
+        setSideRoadMode(mode);
+        void updateGlass();
+        render();
+      }
+    });
+  });
+
+  document.querySelector<HTMLInputElement>("[data-dynamic-zoom]")?.addEventListener("change", (event) => {
+    state.dynamicZoom = (event.target as HTMLInputElement).checked;
+    saveDynamicZoomEnabled();
     void updateGlass();
     render();
   });
@@ -2061,12 +2100,40 @@ function saveHeadingSource(): void {
   window.localStorage.setItem(HEADING_SOURCE_STORAGE_KEY, state.headingSource);
 }
 
-function loadSideRoadsEnabled(): boolean {
-  return window.localStorage.getItem(SIDE_ROADS_STORAGE_KEY) === "1";
+function loadSideRoadMode(): SideRoadDisplayMode {
+  const stored = window.localStorage.getItem(SIDE_ROADS_STORAGE_KEY);
+  if (stored === "off" || stored === "intersections" || stored === "larger") {
+    return stored;
+  }
+  return stored === "1" ? "intersections" : "off";
 }
 
-function saveSideRoadsEnabled(): void {
-  window.localStorage.setItem(SIDE_ROADS_STORAGE_KEY, state.showSideRoads ? "1" : "0");
+function setSideRoadMode(mode: SideRoadDisplayMode): void {
+  state.sideRoadMode = mode;
+  state.showSideRoads = mode !== "off";
+  saveSideRoadMode();
+}
+
+function saveSideRoadMode(): void {
+  window.localStorage.setItem(SIDE_ROADS_STORAGE_KEY, state.sideRoadMode);
+}
+
+function nextSideRoadMode(): SideRoadDisplayMode {
+  if (state.sideRoadMode === "off") {
+    return "intersections";
+  }
+  if (state.sideRoadMode === "intersections") {
+    return "larger";
+  }
+  return "off";
+}
+
+function loadDynamicZoomEnabled(): boolean {
+  return window.localStorage.getItem(DYNAMIC_ZOOM_STORAGE_KEY) !== "0";
+}
+
+function saveDynamicZoomEnabled(): void {
+  window.localStorage.setItem(DYNAMIC_ZOOM_STORAGE_KEY, state.dynamicZoom ? "1" : "0");
 }
 
 function loadSpeedDisplayEnabled(): boolean {
@@ -3098,7 +3165,9 @@ function evaluateAutoReroute(): void {
     positionForGuidance(state.position),
     state.mode,
     state.nextStepIndex,
-    state.unitSystem
+    state.unitSystem,
+    state.sideRoadMode,
+    state.dynamicZoom
   );
   state.nextStepIndex = snapshot.nextStepIndex;
 
@@ -3505,7 +3574,7 @@ function currentSnapshot(): GuidanceSnapshot {
   }
 
   const snapshot = withBlitzerAlert(withDisplayPreferences(
-    makeGuidanceSnapshot(state.route, positionForGuidance(state.position), state.mode, state.nextStepIndex, state.unitSystem)
+    makeGuidanceSnapshot(state.route, positionForGuidance(state.position), state.mode, state.nextStepIndex, state.unitSystem, state.sideRoadMode, state.dynamicZoom)
   ));
   state.nextStepIndex = snapshot.nextStepIndex;
   return state.guidanceView === "map" ? mapGlassesSnapshot(snapshot) : snapshot;
@@ -3549,7 +3618,8 @@ function withDisplayPreferences(snapshot: GuidanceSnapshot): GuidanceSnapshot {
     hint: state.showControlHints
       ? state.guidanceView === "map" ? "Click arrows | Double stop" : "Click map | Double stop"
       : "",
-    showSideRoads: state.showSideRoads,
+    showSideRoads: state.sideRoadMode !== "off",
+    sideRoadMode: state.sideRoadMode,
     showSpeed: state.showSpeed,
     showControlHints: state.showControlHints,
     nightMode: state.nightMode,
@@ -4137,10 +4207,9 @@ function glassesSettings(): Array<{ label: string; value: () => string; toggle: 
     },
     {
       label: "Side roads",
-      value: () => state.showSideRoads ? "Shown at complex turns" : "Hidden",
+      value: () => state.sideRoadMode === "larger" ? "Larger roads" : state.sideRoadMode === "intersections" ? "Turns only" : "Hidden",
       toggle: () => {
-        state.showSideRoads = !state.showSideRoads;
-        saveSideRoadsEnabled();
+        setSideRoadMode(nextSideRoadMode());
       }
     },
     {
@@ -4149,6 +4218,14 @@ function glassesSettings(): Array<{ label: string; value: () => string; toggle: 
       toggle: () => {
         state.showSpeed = !state.showSpeed;
         saveSpeedDisplayEnabled();
+      }
+    },
+    {
+      label: "Dyn zoom EXP",
+      value: () => state.dynamicZoom ? "Speed based" : "Fixed scale",
+      toggle: () => {
+        state.dynamicZoom = !state.dynamicZoom;
+        saveDynamicZoomEnabled();
       }
     },
     {

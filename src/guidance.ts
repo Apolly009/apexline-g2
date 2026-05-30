@@ -32,6 +32,7 @@ export type GuidanceSnapshot = {
   routePreview?: RoutePreviewPoint[];
   sideRoadBranches?: SideRoadPreviewBranch[];
   showSideRoads?: boolean;
+  sideRoadMode?: SideRoadDisplayMode;
   showSpeed?: boolean;
   showControlHints?: boolean;
   nightMode?: boolean;
@@ -46,6 +47,8 @@ export type GuidanceSnapshot = {
   hazardPulseFrame?: number;
   bridgeActive?: boolean;
 };
+
+export type SideRoadDisplayMode = "off" | "intersections" | "larger";
 
 export type PositionSample = {
   coordinate: Coordinate;
@@ -100,7 +103,9 @@ export function makeGuidanceSnapshot(
   position: PositionSample,
   mode: TravelMode,
   previousStepIndex: number,
-  unitSystem: UnitSystem = "imperial"
+  unitSystem: UnitSystem = "imperial",
+  sideRoadMode: SideRoadDisplayMode = "intersections",
+  dynamicZoom = true
 ): GuidanceSnapshot {
   const nearestRouteDistance = nearestDistanceToRoute(route.geometry, position.coordinate);
   const offRoute = nearestRouteDistance > offRouteThresholdMeters(mode, position.speedMetersPerSecond);
@@ -112,7 +117,7 @@ export function makeGuidanceSnapshot(
   }
 
   const distanceToStepMeters = distanceMeters(position.coordinate, step.maneuverLocation);
-  const lookaheadMeters = modeLookaheadMeters(mode, position.speedMetersPerSecond);
+  const lookaheadMeters = modeLookaheadMeters(mode, dynamicZoom ? position.speedMetersPerSecond : null);
   const soon = distanceToStepMeters <= lookaheadMeters;
   const remainingMeters = estimateRemainingDistance(route, nextStepIndex, distanceToStepMeters);
   const remainingSeconds = estimateRemainingDuration(route, nextStepIndex, distanceToStepMeters);
@@ -138,7 +143,15 @@ export function makeGuidanceSnapshot(
     exitNumber: step.exitNumber,
     turnAngleDegrees: turnAngle,
     routePreview: routePreview(route.geometry, position.coordinate, heading, lookaheadMeters),
-    sideRoadBranches: sideRoadPreview(step.intersectionBranches, position.coordinate, heading, lookaheadMeters)
+    sideRoadBranches: sideRoadMode === "off"
+      ? []
+      : sideRoadPreview(
+        sideRoadMode === "larger" ? routeSideRoadBranches(route.steps) : step.intersectionBranches,
+        position.coordinate,
+        heading,
+        lookaheadMeters
+      ),
+    sideRoadMode
   };
 }
 
@@ -331,13 +344,84 @@ function sideRoadPreview(
 
       return {
         roadClass: branch.roadClass,
-        points: simplifyPreview(points)
+        points: ensureMinimumBranchLength(simplifyPreview(points), branch.roadClass)
       };
     })
     .filter((branch) =>
       branch.points.length > 1 &&
       branch.points.some((point) => point.y >= -0.08 && point.y <= 1.04 && Math.abs(point.x) <= 1.02)
     );
+}
+
+function ensureMinimumBranchLength(
+  points: RoutePreviewPoint[],
+  roadClass: IntersectionBranch["roadClass"]
+): RoutePreviewPoint[] {
+  if (points.length < 2) {
+    return points;
+  }
+
+  const minimumLength = roadClass === "major" ? 0.22 : roadClass === "medium" ? 0.18 : 0.14;
+  const currentLength = previewPolylineLength(points);
+  if (currentLength >= minimumLength) {
+    return points;
+  }
+
+  const start = points[0];
+  const end = points[points.length - 1];
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 0.001) {
+    return points;
+  }
+
+  return [
+    ...points.slice(0, -1),
+    {
+      x: clamp(start.x + (dx / length) * minimumLength, -1.15, 1.15),
+      y: clamp(start.y + (dy / length) * minimumLength, -0.2, 1.1)
+    }
+  ];
+}
+
+function previewPolylineLength(points: RoutePreviewPoint[]): number {
+  let length = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    length += Math.hypot(points[index].x - points[index - 1].x, points[index].y - points[index - 1].y);
+  }
+  return length;
+}
+
+function routeSideRoadBranches(steps: RouteStep[]): IntersectionBranch[] {
+  const branches: IntersectionBranch[] = [];
+  const seen = new Set<string>();
+
+  for (const step of steps) {
+    for (const branch of step.intersectionBranches) {
+      const start = branch.points[0];
+      const end = branch.points[Math.min(branch.points.length - 1, 2)];
+      if (!start || !end) {
+        continue;
+      }
+
+      const key = [
+        branch.roadClass,
+        start.lat.toFixed(5),
+        start.lon.toFixed(5),
+        end.lat.toFixed(5),
+        end.lon.toFixed(5)
+      ].join(":");
+      if (seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      branches.push(branch);
+    }
+  }
+
+  return branches;
 }
 
 function previewScaleMeters(lookaheadMeters: number): { forward: number; lateral: number } {

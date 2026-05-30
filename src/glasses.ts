@@ -746,10 +746,24 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
   drawPreviewRoute(context, snapshot, 92, 54, 392, 206, true);
   drawVehicleMarker(context, GLASS_WIDTH / 2, 246);
 
+  const distanceLabel = formatPrimaryDistance(snapshot.primary);
+  const actionLabel = formatPrimaryAction(snapshot.primary, snapshot.arrow);
+  const speedLabel = snapshot.showSpeed ? snapshot.speedLabel ?? "" : "";
+  const roadLabel = trimImageLine(snapshot.roadName || snapshot.secondary, 22);
+  const etaLabel = trimImageLine(snapshot.tertiary.replace(" | ", "  "), 24);
+
+  drawTextClearancePill(context, distanceLabel, 42, 104, `bold 26px ${HUD_FONT_ROUNDED}`, "left", 8, 38, 72);
+  drawTextClearancePill(context, actionLabel, 534, 152, `bold 16px ${HUD_FONT_SHARP}`, "right", 6, 22);
+  if (speedLabel) {
+    drawTextClearancePill(context, speedLabel, 534, 202, `bold 18px ${HUD_FONT_SHARP}`, "right", 6, 24);
+  }
+  drawTextClearancePill(context, roadLabel, 42, 252, `bold 11px ${HUD_FONT_SHARP}`, "left", 5, 16);
+  drawTextClearancePill(context, etaLabel, 534, 252, `bold 13px ${HUD_FONT_SHARP}`, "right", 5, 18);
+
   context.fillStyle = HUD_TEXT;
   context.font = `bold 26px ${HUD_FONT_ROUNDED}`;
   context.textAlign = "left";
-  context.fillText(formatPrimaryDistance(snapshot.primary), 42, 104);
+  context.fillText(distanceLabel, 42, 104);
   context.strokeStyle = "rgba(247, 210, 99, 0.82)";
   context.lineWidth = 2.2;
   context.beginPath();
@@ -760,18 +774,18 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
   context.fillStyle = HUD_PRIMARY;
   context.font = `bold 16px ${HUD_FONT_SHARP}`;
   context.textAlign = "right";
-  context.fillText(formatPrimaryAction(snapshot.primary, snapshot.arrow), 534, 152);
+  context.fillText(actionLabel, 534, 152);
   drawHudSpeedValue(context, snapshot, 534, 202, "right");
 
   context.fillStyle = HUD_MUTED;
   context.font = `bold 11px ${HUD_FONT_SHARP}`;
   context.textAlign = "left";
-  context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 22), 42, 252);
+  context.fillText(roadLabel, 42, 252);
 
   context.fillStyle = HUD_PRIMARY;
   context.font = `bold 13px ${HUD_FONT_SHARP}`;
   context.textAlign = "right";
-  context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 24), 534, 252);
+  context.fillText(etaLabel, 534, 252);
   drawNavigationHazardAlert(context, snapshot, 42, 128);
 }
 
@@ -1333,6 +1347,33 @@ function drawTinyHint(context: CanvasRenderingContext2D, hint: string, x: number
   context.fillText(trimImageLine(hint.replace(" | ", "  "), 42), x, y);
 }
 
+function drawTextClearancePill(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  baseline: number,
+  font: string,
+  align: CanvasTextAlign,
+  paddingX: number,
+  height: number,
+  minimumWidth = 0,
+  yOffset = 0
+): void {
+  if (!text) {
+    return;
+  }
+
+  context.save();
+  context.font = font;
+  const width = Math.max(minimumWidth, context.measureText(text).width + paddingX * 2);
+  const left = align === "right" ? x - width + paddingX : align === "center" ? x - width / 2 : x - paddingX;
+  const top = baseline - height + yOffset;
+  context.fillStyle = "rgba(0, 0, 0, 0.82)";
+  roundRect(context, left, top, width, height, Math.min(8, height / 2));
+  context.fill();
+  context.restore();
+}
+
 function drawStepRail(context: CanvasRenderingContext2D, activeIndex: number): void {
   const steps = [88, 148, 208];
 
@@ -1565,6 +1606,10 @@ function drawBlitzerAlertStrip(
   context.scale(scale, scale);
   context.translate(-centerX, -centerY);
 
+  context.fillStyle = "rgba(0, 0, 0, 0.9)";
+  roundRect(context, x - 2, y - 2, width + 4, height + 4, compact ? 7 : 8);
+  context.fill();
+
   context.fillStyle = muted ? "rgba(124, 255, 158, 0.035)" : `rgba(124, 255, 158, ${0.075 + glow})`;
   context.strokeStyle = muted ? "rgba(124, 255, 158, 0.36)" : `rgba(124, 255, 158, ${0.72 + intro * 0.2})`;
   context.lineWidth = compact ? 1.25 : 1.6;
@@ -1589,13 +1634,39 @@ function drawBlitzerAlertStrip(
   context.fillStyle = muted ? "rgba(124, 255, 158, 0.58)" : HUD_PRIMARY;
   context.font = `bold ${compact ? 10 : 11}px system-ui, sans-serif`;
   const statusText = activePulse ? "SPEED CAMERA AHEAD" : alert.speedLimitLabel;
-  context.fillText(trimImageLine(statusText, compact ? 18 : 20), x + (compact ? 36 : 54), y + (compact ? 27 : 39));
 
   context.fillStyle = muted ? "rgba(221, 255, 227, 0.72)" : HUD_TEXT;
   context.font = `bold ${compact ? 12 : 16}px system-ui, sans-serif`;
   context.textAlign = "right";
-  context.fillText(alert.currentSpeedLabel ?? "--", x + width - (compact ? 8 : 12), y + (compact ? 25 : 36));
+  const currentSpeed = alert.currentSpeedLabel ?? "--";
+  const speedX = x + width - (compact ? 8 : 12);
+  const speedWidth = context.measureText(currentSpeed).width;
+  context.fillText(currentSpeed, speedX, y + (compact ? 25 : 36));
+
+  context.fillStyle = muted ? "rgba(124, 255, 158, 0.58)" : HUD_PRIMARY;
+  context.font = `bold ${compact ? 10 : 11}px system-ui, sans-serif`;
+  context.textAlign = "left";
+  const statusX = x + (compact ? 36 : 54);
+  const statusRight = speedX - speedWidth - (compact ? 8 : 14);
+  context.fillText(
+    trimTextToWidth(context, statusText, Math.max(34, statusRight - statusX)),
+    statusX,
+    y + (compact ? 27 : 39)
+  );
   context.restore();
+}
+
+function trimTextToWidth(context: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (context.measureText(text).width <= maxWidth) {
+    return text;
+  }
+
+  let trimmed = text;
+  while (trimmed.length > 1 && context.measureText(`${trimmed}...`).width > maxWidth) {
+    trimmed = trimmed.slice(0, -1);
+  }
+
+  return `${trimmed.trimEnd()}...`;
 }
 
 function drawSpeedOnlyMenu(
@@ -1877,6 +1948,7 @@ function drawSideRoadBranches(
   toPixel: (point: { x: number; y: number }) => [number, number],
   mapMode: boolean
 ): void {
+  context.save();
   const sorted = [...branches].sort((a, b) => sideRoadWidth(a.roadClass, mapMode) - sideRoadWidth(b.roadClass, mapMode));
   for (const branch of sorted) {
     const points = branch.points.map((point) => toPixel(transform(point)));
@@ -1884,14 +1956,17 @@ function drawSideRoadBranches(
       continue;
     }
 
-    context.strokeStyle = mapMode ? "rgba(221, 255, 227, 0.05)" : "rgba(221, 255, 227, 0.09)";
-    context.lineWidth = sideRoadWidth(branch.roadClass, mapMode) + (mapMode ? 5 : 4);
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.strokeStyle = mapMode ? "rgba(0, 0, 0, 0.42)" : "rgba(0, 0, 0, 0.48)";
+    context.lineWidth = sideRoadWidth(branch.roadClass, mapMode) + (mapMode ? 7 : 6);
     drawPath(context, points);
 
     context.strokeStyle = sideRoadColor(branch.roadClass, mapMode);
     context.lineWidth = sideRoadWidth(branch.roadClass, mapMode);
     drawPath(context, points);
   }
+  context.restore();
 }
 
 function fallbackPreview(snapshot: GuidanceSnapshot): Array<{ x: number; y: number }> {
@@ -1911,22 +1986,22 @@ function identityPreviewTransform(point: { x: number; y: number }): { x: number;
 
 function sideRoadWidth(roadClass: "major" | "medium" | "minor", mapMode: boolean): number {
   if (roadClass === "major") {
-    return mapMode ? 6 : 7;
+    return mapMode ? 8 : 8.5;
   }
   if (roadClass === "medium") {
-    return mapMode ? 4.5 : 5.5;
+    return mapMode ? 6.4 : 7;
   }
-  return mapMode ? 3 : 4;
+  return mapMode ? 4.8 : 5.6;
 }
 
 function sideRoadColor(roadClass: "major" | "medium" | "minor", mapMode: boolean): string {
   if (roadClass === "major") {
-    return mapMode ? "rgba(130, 170, 141, 0.34)" : "rgba(130, 170, 141, 0.42)";
+    return mapMode ? "rgba(190, 235, 198, 0.46)" : "rgba(190, 235, 198, 0.52)";
   }
   if (roadClass === "medium") {
-    return mapMode ? "rgba(130, 170, 141, 0.26)" : "rgba(130, 170, 141, 0.34)";
+    return mapMode ? "rgba(158, 205, 169, 0.38)" : "rgba(158, 205, 169, 0.46)";
   }
-  return mapMode ? "rgba(130, 170, 141, 0.2)" : "rgba(130, 170, 141, 0.28)";
+  return mapMode ? "rgba(132, 178, 144, 0.32)" : "rgba(132, 178, 144, 0.4)";
 }
 
 function drawVehicleMarker(context: CanvasRenderingContext2D, x: number, y: number): void {

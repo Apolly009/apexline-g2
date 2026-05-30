@@ -109,6 +109,7 @@ type RoadWayGeometry = {
 const SIDE_ROAD_RADIUS_METERS = 92;
 const SIDE_ROAD_MAX_LENGTH_METERS = 170;
 const SIDE_ROAD_ROUTE_MATCH_DEGREES = 18;
+const SIDE_ROAD_JUNCTION_TOLERANCE_METERS = 58;
 const SIDE_ROAD_DUPLICATE_DEGREES = 10;
 const MAX_SIDE_ROAD_BRANCHES = 6;
 
@@ -563,7 +564,7 @@ function branchesForWay(
     }
   }
 
-  if (junctionIndex < 0 || nearestMeters > 42) {
+  if (junctionIndex < 0 || nearestMeters > SIDE_ROAD_JUNCTION_TOLERANCE_METERS) {
     return [];
   }
 
@@ -576,7 +577,7 @@ function branchesForWay(
     }
 
     const bearing = bearingAlongBranch(points);
-    if (bearing == null || matchesRouteBearing(bearing, routeBearings)) {
+    if (bearing == null || matchesRoutePath(bearing, routeBearings)) {
       continue;
     }
 
@@ -642,10 +643,12 @@ function bearingAlongBranch(points: Coordinate[]): number | null {
   return points[1] ? bearingDegrees(start, points[1]) : null;
 }
 
-function matchesRouteBearing(bearing: number, routeBearings: RouteBearings): boolean {
-  return [routeBearings.incoming, routeBearings.outgoing].some((routeBearing) =>
-    routeBearing != null && angularDistanceDegrees(bearing, routeBearing) <= SIDE_ROAD_ROUTE_MATCH_DEGREES
-  );
+function matchesRoutePath(bearing: number, routeBearings: RouteBearings): boolean {
+  const outgoingMatch = routeBearings.outgoing != null &&
+    angularDistanceDegrees(bearing, routeBearings.outgoing) <= SIDE_ROAD_ROUTE_MATCH_DEGREES;
+  const backtrackMatch = routeBearings.incoming != null &&
+    angularDistanceDegrees(bearing, normalizeDegrees(routeBearings.incoming + 180)) <= SIDE_ROAD_ROUTE_MATCH_DEGREES;
+  return outgoingMatch || backtrackMatch;
 }
 
 function selectIntersectionBranches(branches: CandidateIntersectionBranch[]): CandidateIntersectionBranch[] {
