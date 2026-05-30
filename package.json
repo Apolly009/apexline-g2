@@ -17,6 +17,7 @@
     "listing:screenshot:map": "node scripts/capture-listing-screenshot.mjs map",
     "screenshots:validate": "node scripts/validate-glasses-screenshots.mjs",
     "listing:screenshots:validate": "node scripts/validate-glasses-screenshots.mjs release-assets/listing-screenshots/01-home-transparent.png release-assets/listing-screenshots/02-arrow-navigation-transparent.png release-assets/listing-screenshots/03-map-navigation-transparent.png",
+    "packages:collect": "node scripts/collect-evenhub-packages.mjs",
     "pack": "npm run build && evenhub pack app.json dist -o apexline.ehpk"
   },
   "dependencies": {
