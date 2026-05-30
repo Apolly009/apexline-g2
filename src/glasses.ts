@@ -7,6 +7,7 @@ import {
   RebuildPageContainer,
   StartUpPageCreateResult,
   TextContainerProperty,
+  TextContainerUpgrade,
   waitForEvenAppBridge
 } from "@evenrealities/even_hub_sdk";
 import type { GuidanceSnapshot } from "./guidance";
@@ -16,6 +17,9 @@ type InputHandler = (action: "press" | "double" | "up" | "down" | "long") => voi
 
 const MAIN_CONTAINER_ID = 1;
 const MAIN_CONTAINER_NAME = "main";
+const STARTUP_NOTICE_CONTAINER_ID = 6;
+const STARTUP_NOTICE_CONTAINER_NAME = "launch";
+const STARTUP_NOTICE_MIN_MS = 750;
 const GLASS_WIDTH = 576;
 const GLASS_HEIGHT = 288;
 const TILE_WIDTH = 288;
@@ -94,7 +98,7 @@ export class GlassDisplay {
         } else if (/SCROLL_BOTTOM|SCROLL_DOWN|SWIPE_DOWN|\bDOWN\b/.test(rawEventType) || normalizedEventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
           onInput("down");
         } else {
-          onInput("press");
+          console.info("[GlassDisplay] ignored unmapped event", rawEventType);
         }
       });
 
@@ -167,6 +171,20 @@ export class GlassDisplay {
       content: "",
       isEventCapture: 1
     });
+    const startupNotice = new TextContainerProperty({
+      xPosition: 68,
+      yPosition: 96,
+      width: 440,
+      height: 96,
+      borderWidth: 0,
+      borderColor: 0,
+      borderRadius: 0,
+      paddingLength: 0,
+      containerID: STARTUP_NOTICE_CONTAINER_ID,
+      containerName: STARTUP_NOTICE_CONTAINER_NAME,
+      content: "Apexline started\nContinue on phone",
+      isEventCapture: 0
+    });
     const images = IMAGE_TILES.map((tile) => new ImageContainerProperty({
       xPosition: tile.x,
       yPosition: tile.y,
@@ -177,8 +195,8 @@ export class GlassDisplay {
     }));
 
     const page = {
-      containerTotalNum: 1 + images.length,
-      textObject: [eventCapture],
+      containerTotalNum: 2 + images.length,
+      textObject: [eventCapture, startupNotice],
       imageObject: images
     };
 
@@ -194,6 +212,8 @@ export class GlassDisplay {
     const result = await this.bridge.createStartUpPageContainer(new CreateStartUpPageContainer(page));
     console.info("[GlassDisplay] createStartUpPageContainer", result);
     if (result === StartUpPageCreateResult.success) {
+      await delay(STARTUP_NOTICE_MIN_MS);
+      await this.clearStartupNotice();
       await this.updateImage(snapshot, content);
       return true;
     }
@@ -201,6 +221,8 @@ export class GlassDisplay {
     const rebuilt = await this.bridge.rebuildPageContainer(new RebuildPageContainer(page));
     console.info("[GlassDisplay] startup fallback rebuildPageContainer", rebuilt);
     if (rebuilt) {
+      await delay(STARTUP_NOTICE_MIN_MS);
+      await this.clearStartupNotice();
       await this.updateImage(snapshot, content);
     }
     return rebuilt;
@@ -213,7 +235,7 @@ export class GlassDisplay {
     }
 
     const tiles = renderGlassImageTiles(snapshot, fallbackContent);
-    await Promise.all(tiles.map(async (tile) => {
+    for (const tile of tiles) {
       const result = await bridge.updateImageRawData(
         new ImageRawDataUpdate({
           containerID: tile.id,
@@ -225,7 +247,25 @@ export class GlassDisplay {
       if (!ImageRawDataUpdateResult.isSuccess(result)) {
         console.info("[GlassDisplay] image update did not succeed", tile.name, result);
       }
-    }));
+    }
+  }
+
+  private async clearStartupNotice(): Promise<void> {
+    if (!this.bridge) {
+      return;
+    }
+
+    try {
+      await this.bridge.textContainerUpgrade(new TextContainerUpgrade({
+        containerID: STARTUP_NOTICE_CONTAINER_ID,
+        containerName: STARTUP_NOTICE_CONTAINER_NAME,
+        contentOffset: 0,
+        contentLength: 0,
+        content: ""
+      }));
+    } catch (error) {
+      console.info("[GlassDisplay] clear startup notice failed", error);
+    }
   }
 
 }
@@ -319,8 +359,10 @@ function renderGlassImageTiles(
 
   context.fillStyle = "#000000";
   context.fillRect(0, 0, canvas.width, canvas.height);
+  context.imageSmoothingEnabled = false;
   context.lineCap = "round";
   context.lineJoin = "round";
+  installMaskedTextRenderer(context);
 
   if (snapshot?.active && snapshot.title === "Apex Map") {
     drawMapImage(context, snapshot);
@@ -330,11 +372,16 @@ function renderGlassImageTiles(
     drawIdleImage(context, snapshot, fallbackContent);
   }
 
+  normalizeHudPixels(context);
+
   return IMAGE_TILES.map((tile) => {
     const tileCanvas = document.createElement("canvas");
     tileCanvas.width = TILE_WIDTH;
     tileCanvas.height = TILE_HEIGHT;
     const tileContext = tileCanvas.getContext("2d");
+    if (tileContext) {
+      tileContext.imageSmoothingEnabled = false;
+    }
     tileContext?.drawImage(canvas, tile.x, tile.y, TILE_WIDTH, TILE_HEIGHT, 0, 0, TILE_WIDTH, TILE_HEIGHT);
     return {
       id: tile.id,
@@ -342,6 +389,120 @@ function renderGlassImageTiles(
       imageData: tileCanvas.toDataURL("image/png").split(",")[1] ?? ""
     };
   });
+}
+
+function normalizeHudPixels(context: CanvasRenderingContext2D): void {
+  const image = context.getImageData(0, 0, GLASS_WIDTH, GLASS_HEIGHT);
+  for (let index = 0; index < image.data.length; index += 4) {
+    const red = image.data[index];
+    const green = image.data[index + 1];
+    const blue = image.data[index + 2];
+    const intensity = Math.max(red, green, blue);
+    const level = hudPixelLevel(intensity);
+    image.data[index] = 0;
+    image.data[index + 1] = level;
+    image.data[index + 2] = 0;
+    image.data[index + 3] = 255;
+  }
+  context.putImageData(image, 0, 0);
+}
+
+function installMaskedTextRenderer(context: CanvasRenderingContext2D): void {
+  const nativeFillText = context.fillText.bind(context);
+  const nativeMeasureText = context.measureText.bind(context);
+
+  context.fillText = (text: string, x: number, y: number, maxWidth?: number) => {
+    drawMaskedText(context, nativeFillText, nativeMeasureText, String(text), x, y, maxWidth);
+  };
+}
+
+function drawMaskedText(
+  context: CanvasRenderingContext2D,
+  nativeFillText: CanvasRenderingContext2D["fillText"],
+  nativeMeasureText: CanvasRenderingContext2D["measureText"],
+  text: string,
+  x: number,
+  y: number,
+  maxWidth?: number
+): void {
+  if (!text) {
+    return;
+  }
+
+  const metrics = nativeMeasureText(text);
+  const fontSize = Number(context.font.match(/(\d+(?:\.\d+)?)px/)?.[1] ?? 14);
+  const padding = Math.max(8, Math.ceil(fontSize * 0.45));
+  const drawWidth = Math.max(1, Math.ceil(maxWidth ?? metrics.width));
+  const canvasWidth = Math.ceil(drawWidth + padding * 2);
+  const canvasHeight = Math.ceil(fontSize * 1.8 + padding * 2);
+  const scratch = document.createElement("canvas");
+  scratch.width = canvasWidth;
+  scratch.height = canvasHeight;
+  const scratchContext = scratch.getContext("2d");
+  if (!scratchContext) {
+    nativeFillText(text, x, y, maxWidth);
+    return;
+  }
+
+  scratchContext.font = context.font;
+  scratchContext.fillStyle = context.fillStyle;
+  scratchContext.textAlign = context.textAlign;
+  scratchContext.textBaseline = "alphabetic";
+  const scratchX = context.textAlign === "right"
+    ? canvasWidth - padding
+    : context.textAlign === "center"
+      ? canvasWidth / 2
+      : padding;
+  const scratchBaseline = padding + fontSize;
+  scratchContext.fillText(text, scratchX, scratchBaseline, maxWidth);
+
+  const image = scratchContext.getImageData(0, 0, canvasWidth, canvasHeight);
+  let maxAlpha = 0;
+  for (let index = 3; index < image.data.length; index += 4) {
+    maxAlpha = Math.max(maxAlpha, image.data[index]);
+  }
+  if (maxAlpha === 0) {
+    return;
+  }
+
+  const threshold = Math.max(18, maxAlpha * 0.58);
+  for (let index = 0; index < image.data.length; index += 4) {
+    const alpha = image.data[index + 3];
+    if (alpha >= threshold) {
+      const strength = maxAlpha / 255;
+      image.data[index] = Math.round(image.data[index] * strength);
+      image.data[index + 1] = Math.round(image.data[index + 1] * strength);
+      image.data[index + 2] = Math.round(image.data[index + 2] * strength);
+      image.data[index + 3] = 255;
+    } else {
+      image.data[index] = 0;
+      image.data[index + 1] = 0;
+      image.data[index + 2] = 0;
+      image.data[index + 3] = 0;
+    }
+  }
+  scratchContext.putImageData(image, 0, 0);
+
+  const targetX = context.textAlign === "right"
+    ? Math.round(x - canvasWidth + padding)
+    : context.textAlign === "center"
+      ? Math.round(x - canvasWidth / 2)
+      : Math.round(x - padding);
+  const targetY = Math.round(y - scratchBaseline);
+  context.drawImage(scratch, targetX, targetY);
+}
+
+function hudPixelLevel(intensity: number): number {
+  if (intensity < 36) {
+    return 0;
+  }
+  if (intensity < 120) {
+    return 80;
+  }
+  if (intensity < 210) {
+    return 145;
+  }
+  return 255;
 }
 
 function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
@@ -859,9 +1020,9 @@ function drawFavoriteList(
   items.forEach((item, index) => {
     const y = top + index * (rowHeight + rowGap);
     const selected = Boolean(item.selected);
-    context.fillStyle = selected ? "rgba(124, 255, 158, 0.11)" : "rgba(124, 255, 158, 0.025)";
-    context.strokeStyle = selected ? "rgba(124, 255, 158, 0.86)" : "rgba(130, 170, 141, 0.2)";
-    context.lineWidth = selected ? 2 : 1.25;
+    context.fillStyle = selected ? "rgba(124, 255, 158, 0.14)" : "rgba(124, 255, 158, 0.04)";
+    context.strokeStyle = selected ? "rgba(124, 255, 158, 0.96)" : "rgba(130, 170, 141, 0.38)";
+    context.lineWidth = selected ? 2 : 1.5;
     roundRect(context, rowX, y, rowWidth, rowHeight, 7);
     context.fill();
     context.stroke();
@@ -1583,6 +1744,12 @@ function stripLeadingArrow(value: string, arrow: string): string {
 
 function trimImageLine(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
+}
+
+function delay(timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, timeoutMs);
+  });
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

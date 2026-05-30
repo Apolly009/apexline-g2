@@ -13,13 +13,27 @@
     },
     {
       "name": "network",
-      "desc": "Searches destinations, fetches driving routes, and loads map tiles.",
+      "desc": "Searches destinations, fetches driving routes, loads map tiles, and loads the companion screen visual.",
       "whitelist": [
         "https://nominatim.openstreetmap.org",
+        "https://nominatim.openstreetmap.org/search",
+        "https://nominatim.openstreetmap.org/reverse",
         "https://router.project-osrm.org",
+        "https://router.project-osrm.org/route/v1/driving",
+        "https://router.project-osrm.org/route/v1/driving/${a}",
+        "https://leafletjs.com",
+        "https://www.openstreetmap.org",
+        "https://www.openstreetmap.org/copyright",
+        "https://overpass-api.de",
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
         "https://a.tile.openstreetmap.org",
         "https://b.tile.openstreetmap.org",
-        "https://c.tile.openstreetmap.org"
+        "https://c.tile.openstreetmap.org",
+        "https://images.unsplash.com",
+        "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1600&q=80"
       ]
     }
   ],

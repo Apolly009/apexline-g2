@@ -24,16 +24,27 @@ guidance tuned for motorcycle and spirited car use.
   the glasses.
 - Shows current speed during active guidance when the Speed display setting is
   enabled.
+- `main-experimental` includes experimental HUD heading modes: Travel course,
+  phone compass, and G2-facing heading with bounded relative IMU yaw plus
+  acceleration-lock assistance when matching phone/G2 motion is available.
+- Can show Blitzer.de Pro-style speed camera alerts when an external bridge
+  feeds alert distance and speed-limit data into Apexline. The app cannot read
+  another app's iOS notifications directly from the EvenHub WebView.
 - Supports glasses/ring input:
-  - Startup screen: click opens Choose Favorites when favorites are available.
+  - Cold boot shows a short Apexline splash, then flows into the glasses home
+    menu. Tap/click skips the splash.
+  - Home menu: swipe up/down moves between Navigation, Blitzer, and Settings;
+    click selects, double press stays at home.
   - Favorite picker: swipe up/down cycles saved places, click selects the
     start or finish, double press backs out.
-  - Route-ready screen: swipe down starts navigation.
-  - Active navigation: double press stops navigation and returns to the top
-    screen.
-  - Long press opens compact glasses settings for guidance view, ride mode,
-    units, and complex-intersection side roads when the host sends a long/hold
-    event. Double press on the startup screen is a fallback settings shortcut.
+  - Route-ready screen: click starts navigation.
+  - Blitzer screen: click or swipe up confirms the alert, swipe down marks it
+    gone, double press backs out.
+  - Active navigation: click toggles arrow/map HUD, double press stops
+    navigation, long press opens compact glasses settings. Swipe up/down report
+    a Blitzer alert when one is active.
+  - Glasses settings cover guidance view, ride mode, units, side roads, speed,
+    night HUD, arrow position, control hints, and Blitzer alerts.
 
 ## Run locally
 
@@ -53,16 +64,71 @@ http://localhost:5173/
 With the dev server running:
 
 ```bash
-evenhub-simulator http://localhost:5173
+evenhub-simulator --automation-port 9898 http://localhost:5173
 ```
 
 Developer tools are hidden in the normal phone UI. Tap the Apexline title five
 times to toggle them for the current session, or open with `?devTools=1`.
 They reset to hidden on every fresh app load. Dev launch flags remain available
 for simulator testing, for example `?devRoute=1&view=map&autoDrive=1`.
+Blitzer alert testing can use the dev-only Simulate Blitzer alert button,
+`?blitzer=1&blitzerDistance=600&blitzerSpeed=80`, or the dev console helper
+`window.__apexlineBlitzerAlert("Speed camera in 600 m 80 km/h")`.
+Heading test flags include `?heading=phone&phoneHeading=90`,
+`?heading=glasses&glassesHeading=90`, and
+`?heading=glasses&phoneHeading=90&phoneAccelX=0&phoneAccelY=3&glassesImuBase=0&glassesImuZ=45`.
+Use `?devSplashMs=12000` to hold the glasses cold-boot splash longer while
+checking it in the simulator.
+Capture the glasses display without raising the simulator windows with:
+
+```bash
+npm run sim:screenshot
+```
+
+The simulator screenshot is transparent; the script also writes a black-preview
+PNG for easier local review.
+Hub listing screenshots should use the transparent files in
+`release-assets/listing-screenshots`, not the `*-preview-black.png` review
+copies. Validate the listing set with:
+
+```bash
+npm run listing:screenshots:validate
+```
+
 With dev tools enabled, the phone/browser window also accepts keyboard gesture
 testing: Enter is click, ArrowUp/ArrowDown are swipes, D or Escape is double
 press, and L is long press.
+
+## Blitzer.de Pro integration
+
+Blitzer.de Pro is treated as an external alert source. A companion bridge can
+parse Blitzer.de Pro notification text or native alert data, then call
+`window.__apexlineBlitzerAlert(...)` or dispatch the `apexline-blitzer-alert`
+custom event with `{ distanceMeters, speedLimitKph, label }`. Apexline shows the
+alert while navigating and also has a standalone Blitzer screen on the glasses
+when the Blitzer setting is enabled. Reporting "still there" or "gone" is
+tracked locally for now; writing the report back into Blitzer.de Pro still needs
+a real companion/app integration path.
+
+The experimental iOS 26.5 accessory-notification bridge scaffold lives in
+`ios/ApexlineNotificationBridge`. It uses Apple's AccessorySetupKit,
+AccessoryNotifications, and AccessoryTransportExtension APIs; see
+`docs/blitzer-notification-bridge.md` for the current architecture and
+remaining hardware/entitlement limitations.
+
+## Experimental branch policy
+
+`main-experimental` is the hardware-test branch. It starts from `main`, then
+adds current experimental branches with visible experimental labeling so WIP
+features can be tested together without changing the stable `main` app.
+Current experimental features are marked in the phone settings and glasses
+settings where applicable, especially Blitzer.de PRO bridge and G2-facing HUD
+heading.
+
+See `docs/g2-heading-hardware-checklist.md` before treating G2-facing heading
+as hardware-verified.
+
+See `docs/roadmap.md` for planned follow-up features.
 
 ## Build and pack
 
@@ -71,19 +137,20 @@ npm run build
 npm run pack
 ```
 
+For the full pre-upload gate, run:
+
+```bash
+npm run release:check
+```
+
 The packaged app is written to:
 
 ```text
 apexline.ehpk
 ```
 
-Portal upload assets are in:
-
-```text
-release-assets/apexline-icon.png
-release-assets/apexline-background.png
-release-assets/apexline-glasses-home-screenshot.png
-```
+Before resubmitting to Even Hub, run through
+`docs/even-hub-resubmission-checklist.md`.
 
 ## Map services
 
