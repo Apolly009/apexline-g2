@@ -8,8 +8,9 @@ Use this before uploading ApexBike after a review rejection.
 - `app.json` should require Even Realities app `2.2.1` or newer.
 - The Even Hub listing should request Location, Local network, and Run
   background services permissions.
-- The glasses launch path must briefly show normal-process text:
-  `ApexBike started` / `Continue on phone`.
+- The glasses launch path should render the ApexBike HUD/home UI directly.
+  Do not reintroduce the old `ApexBike started` / `Continue on phone`
+  startup text because testers reported real glasses could stay stuck there.
 - Listing screenshots must come from the latest Even Hub simulator and must use
   the transparent PNG files, not the black preview copies.
 

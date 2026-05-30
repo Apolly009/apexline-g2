@@ -76,7 +76,7 @@ type GlassPickerOption = PlaceResult & {
 };
 type LocationRequestMode = "balanced" | "precise";
 type LocationDiagnostic = {
-  source: "watchPosition-initial" | "watchPosition" | "feature-check" | "secure-context";
+  source: "watchPosition-initial" | "watchPosition-live" | "feature-check" | "secure-context";
   target: "origin" | "destination";
   code: number | null;
   codeName: string;
@@ -144,7 +144,7 @@ const state: AppState = {
   routeRequestId: 0,
   originQuery: "",
   originResults: [],
-  originLabel: "",
+  originLabel: "Current Location",
   query: "",
   results: [],
   favorites: loadFavorites(),
@@ -160,7 +160,7 @@ const state: AppState = {
   route: null,
   position: null,
   locationSource: null,
-  locationStatus: "No location yet",
+  locationStatus: "Start defaults to current location. Choose a destination.",
   lastLocationError: null,
   favoriteStorageStatus: "Favorites saved on this phone.",
   nextStepIndex: 0,
@@ -1764,21 +1764,27 @@ async function runOriginSearch(): Promise<void> {
 
 function startLocationWatch(target: "origin" | "destination" = "origin"): void {
   if (!("geolocation" in navigator)) {
+    state.startWhenRouteReady = false;
     state.error = "This WebView does not expose location services.";
     state.lastLocationError = makeLocationDiagnostic("feature-check", target, null, "navigator.geolocation is missing");
     state.locationStatus = target === "origin"
       ? "Tap the Start field, then tap the map as a fallback."
       : "Tap the Destination field, then tap the map as a fallback.";
+    updateRouteActions();
+    void updateGlass();
     render();
     return;
   }
 
   if (!window.isSecureContext) {
+    state.startWhenRouteReady = false;
     state.error = "Location requires a secure WebView or localhost.";
     state.lastLocationError = makeLocationDiagnostic("secure-context", target, null, "window.isSecureContext is false");
     state.locationStatus = target === "origin"
       ? "Tap the Start field, then tap the map for local testing."
       : "Tap the Destination field, then tap the map for local testing.";
+    updateRouteActions();
+    void updateGlass();
     render();
     return;
   }
@@ -1803,12 +1809,12 @@ function startLocationWatch(target: "origin" | "destination" = "origin"): void {
 function startInitialGpsWatch(target: "origin" | "destination"): void {
   positionWatchId = navigator.geolocation.watchPosition(
     (position) => {
-      applyCurrentLocation(position, target);
-
-      if (target === "destination" && positionWatchId != null) {
+      if (positionWatchId != null) {
         navigator.geolocation.clearWatch(positionWatchId);
         positionWatchId = null;
       }
+
+      applyCurrentLocation(position, target);
 
       updatePlannerUiAfterPositionChange();
       void updateGlass();
@@ -1816,10 +1822,42 @@ function startInitialGpsWatch(target: "origin" | "destination"): void {
     (error) => {
       state.locating = false;
       state.locatingFor = null;
+      state.startWhenRouteReady = false;
       state.lastLocationError = makeLocationDiagnostic("watchPosition-initial", target, error, error.message);
       state.error = geolocationErrorMessage(error);
       state.locationStatus = geolocationFallbackStatus(error, target);
       updateLocationRequestUi(target);
+      updateRouteActions();
+      void updateGlass();
+    },
+    locationOptions("precise")
+  );
+}
+
+function startLiveGpsWatch(): void {
+  if (state.locationSource !== "gps" || !("geolocation" in navigator) || !window.isSecureContext) {
+    return;
+  }
+
+  if (positionWatchId != null) {
+    navigator.geolocation.clearWatch(positionWatchId);
+    positionWatchId = null;
+  }
+
+  positionWatchId = navigator.geolocation.watchPosition(
+    (position) => {
+      applyGpsOrigin(position);
+      updatePlannerUiAfterPositionChange();
+      void updateGlass();
+    },
+    (error) => {
+      state.startWhenRouteReady = false;
+      state.lastLocationError = makeLocationDiagnostic("watchPosition-live", "origin", error, error.message);
+      state.error = geolocationErrorMessage(error);
+      state.locationStatus = geolocationFallbackStatus(error, "origin");
+      updateLocationRequestUi("origin");
+      updateRouteActions();
+      void updateGlass();
     },
     locationOptions("precise")
   );
@@ -1921,6 +1959,7 @@ async function ensureRouteReady(): Promise<void> {
   state.navigating = false;
   state.error = null;
   void updateRuntimeKeepAlive();
+  void updateGlass();
   updateStatsCard();
   render();
 
@@ -1944,12 +1983,15 @@ async function ensureRouteReady(): Promise<void> {
     if (state.startWhenRouteReady) {
       state.startWhenRouteReady = false;
       state.navigating = true;
+      startLiveGpsWatch();
       void updateRuntimeKeepAlive();
       await updateGlass();
     }
   } catch (error) {
     if (state.routeRequestId === requestId) {
       state.error = toMessage(error);
+      state.startWhenRouteReady = false;
+      void updateGlass();
     }
   } finally {
     if (state.routeRequestId === requestId) {
@@ -2132,6 +2174,10 @@ function canCancelNavigation(): boolean {
 
 function cancelNavigation(status = "Navigation stopped."): void {
   stopDevDriving();
+  if (positionWatchId != null) {
+    navigator.geolocation.clearWatch(positionWatchId);
+    positionWatchId = null;
+  }
   state.routeRequestId += 1;
   state.routing = false;
   state.autoRerouting = false;
@@ -2232,13 +2278,6 @@ async function startNavigation(): Promise<void> {
     return;
   }
 
-  if (!state.position) {
-    state.error = "Choose a start point or use current location first.";
-    state.locationStatus = "Start is missing. Use current location, pick a favorite, or tap the map.";
-    render();
-    return;
-  }
-
   if (!state.selectedPlace) {
     await resolveTypedDestinationForNavigation();
   }
@@ -2247,9 +2286,27 @@ async function startNavigation(): Promise<void> {
     return;
   }
 
+  if (!state.position) {
+    if (isCurrentLocationStartSelected()) {
+      state.startWhenRouteReady = true;
+      state.error = null;
+      state.locationStatus = "Getting current location for start...";
+      startLocationWatch("origin");
+      void updateGlass();
+      updateRouteActions();
+      return;
+    }
+
+    state.error = "Choose a start point or use current location first.";
+    state.locationStatus = "Start is missing. Use current location, pick a favorite, or tap the map.";
+    render();
+    return;
+  }
+
   if (!state.route) {
     state.startWhenRouteReady = true;
     void updateRuntimeKeepAlive();
+    void updateGlass();
     render();
     void ensureRouteReady().then(() => {
       render();
@@ -2261,6 +2318,7 @@ async function startNavigation(): Promise<void> {
   state.navigating = true;
   state.nextStepIndex = 0;
   state.offRouteSampleCount = 0;
+  startLiveGpsWatch();
   void updateRuntimeKeepAlive();
   void updateGlass();
   render();
@@ -2330,6 +2388,10 @@ function currentSnapshot(): GuidanceSnapshot {
     return glassesSettingsSnapshot();
   }
 
+  if (state.startWhenRouteReady || state.routing) {
+    return routeReadyGlassesSnapshot();
+  }
+
   if (!state.navigating) {
     if (state.glassesScreen === "home" || state.glassesScreen === "homeMenu" || state.glassesScreen === "homeTransition") {
       return homeMenuGlassesSnapshot();
@@ -2382,13 +2444,17 @@ function withDisplayPreferences(snapshot: GuidanceSnapshot): GuidanceSnapshot {
 function routeReadyGlassesSnapshot(): GuidanceSnapshot {
   const origin = originInputValue() || state.glassesSelectedOrigin?.label || "Start";
   const destination = state.selectedPlace?.label ?? "Destination";
-  const routeStatus = state.routing ? "Building route" : state.route ? "Ready to ride" : "Route needed";
+  const routeStatus = state.routing
+    ? "Building route"
+    : state.startWhenRouteReady
+      ? state.position ? "Starting route" : "Getting GPS"
+      : state.route ? "Ready to ride" : "Route needed";
   return {
     active: false,
     title: "Route Ready",
     primary: routeStatus,
     secondary: `${shortGlassLabel(origin)} -> ${shortGlassLabel(destination)}`,
-    tertiary: state.route ? "Start" : "Building",
+    tertiary: state.startWhenRouteReady ? "Starting" : state.route ? "Start" : "Building",
     hint: state.showControlHints ? "Click start | Double back" : "",
     arrow: "--",
     nextStepIndex: 0,
@@ -3000,7 +3066,16 @@ function shortGlassLabel(label: string): string {
 }
 
 function canStartNavigation(): boolean {
-  return Boolean(state.position && !state.navigating && !state.routing && (state.selectedPlace || state.query.trim().length >= 3));
+  return Boolean(
+    !state.navigating &&
+    !state.routing &&
+    (state.position || isCurrentLocationStartSelected()) &&
+    (state.selectedPlace || state.query.trim().length >= 3)
+  );
+}
+
+function isCurrentLocationStartSelected(): boolean {
+  return !state.position && state.originLabel === "Current Location" && state.originQuery.trim().length === 0;
 }
 
 function syncMap(focusDestination = false): void {
