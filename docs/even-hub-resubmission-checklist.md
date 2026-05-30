@@ -5,6 +5,9 @@ Use this before uploading Apexline after a review rejection.
 ## Rejection Fixes
 
 - `app.json` must whitelist every bundled `https://` URL.
+- `app.json` should require Even Realities app `2.2.1` or newer.
+- The Even Hub listing should request Location, Local network, and Run
+  background services permissions.
 - The glasses launch path must briefly show normal-process text:
   `Apexline started` / `Continue on phone`.
 - Listing screenshots must come from the latest Even Hub simulator and must use

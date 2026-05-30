@@ -71,6 +71,15 @@ type GlassPickerOption = PlaceResult & {
   badge?: string;
   disabled?: boolean;
 };
+type WakeLockSentinelLike = {
+  release: () => Promise<void>;
+  addEventListener: (type: "release", listener: () => void) => void;
+};
+type WakeLockNavigator = Navigator & {
+  wakeLock?: {
+    request: (type: "screen") => Promise<WakeLockSentinelLike>;
+  };
+};
 
 const FAVORITES_STORAGE_KEY = "apexline-favorites";
 const UNIT_SYSTEM_STORAGE_KEY = "apexline-unit-system";
@@ -179,12 +188,14 @@ let glassesSplashFrame = 0;
 let glassesHomeTransitionFrame = 0;
 let glassesSplashDurationMs = GLASSES_SPLASH_MS;
 let ignoreGlassInputUntil = 0;
+let screenWakeLock: WakeLockSentinelLike | null = null;
 
 void boot();
 
 async function boot(): Promise<void> {
   applyLaunchOptions();
   installDevGlassHarness();
+  installRuntimeKeepAliveHandlers();
   render();
   state.bridgeConnected = await glassDisplay.connect(handleGlassInput);
   await updateGlass();
@@ -312,6 +323,58 @@ function installDevGlassHarness(): void {
 
     runDevGlassInput(action);
   });
+}
+
+function installRuntimeKeepAliveHandlers(): void {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      void updateRuntimeKeepAlive();
+    }
+  });
+}
+
+async function updateRuntimeKeepAlive(): Promise<void> {
+  if (!shouldKeepRuntimeAwake() || document.visibilityState !== "visible") {
+    await releaseScreenWakeLock();
+    return;
+  }
+
+  if (screenWakeLock != null) {
+    return;
+  }
+
+  const wakeLock = (navigator as WakeLockNavigator).wakeLock;
+  if (!wakeLock) {
+    return;
+  }
+
+  try {
+    screenWakeLock = await wakeLock.request("screen");
+    screenWakeLock.addEventListener("release", () => {
+      screenWakeLock = null;
+    });
+  } catch {
+    screenWakeLock = null;
+  }
+}
+
+function shouldKeepRuntimeAwake(): boolean {
+  return state.navigating || state.routing || state.startWhenRouteReady || state.devDriving;
+}
+
+async function releaseScreenWakeLock(): Promise<void> {
+  if (screenWakeLock == null) {
+    return;
+  }
+
+  const lock = screenWakeLock;
+  screenWakeLock = null;
+
+  try {
+    await lock.release();
+  } catch {
+    // The browser may release the lock before our cleanup runs.
+  }
 }
 
 function devDebugSnapshot(): Record<string, unknown> {
@@ -1614,6 +1677,7 @@ async function ensureRouteReady(): Promise<void> {
   state.route = null;
   state.navigating = false;
   state.error = null;
+  void updateRuntimeKeepAlive();
   updateStatsCard();
   render();
 
@@ -1637,6 +1701,7 @@ async function ensureRouteReady(): Promise<void> {
     if (state.startWhenRouteReady) {
       state.startWhenRouteReady = false;
       state.navigating = true;
+      void updateRuntimeKeepAlive();
       await updateGlass();
     }
   } catch (error) {
@@ -1646,6 +1711,7 @@ async function ensureRouteReady(): Promise<void> {
   } finally {
     if (state.routeRequestId === requestId) {
       state.routing = false;
+      void updateRuntimeKeepAlive();
       render();
     }
   }
@@ -1694,6 +1760,7 @@ async function rerouteFromCurrentPosition(): Promise<void> {
   state.startWhenRouteReady = false;
   state.error = null;
   state.locationStatus = "Off route. Recalculating route...";
+  void updateRuntimeKeepAlive();
   render();
 
   try {
@@ -1711,6 +1778,7 @@ async function rerouteFromCurrentPosition(): Promise<void> {
     state.navigating = true;
     state.offRouteSampleCount = 0;
     state.locationStatus = "Route recalculated.";
+    void updateRuntimeKeepAlive();
     await updateGlass();
   } catch (error) {
     if (state.routeRequestId === requestId) {
@@ -1721,6 +1789,7 @@ async function rerouteFromCurrentPosition(): Promise<void> {
     if (state.routeRequestId === requestId) {
       state.routing = false;
       state.autoRerouting = false;
+      void updateRuntimeKeepAlive();
       render();
     }
   }
@@ -1734,11 +1803,13 @@ async function buildDevTestRoute(): Promise<void> {
   state.results = [];
   state.activeSearchField = null;
   state.startWhenRouteReady = true;
+  void updateRuntimeKeepAlive();
   await ensureRouteReady();
   if (state.route) {
     state.navigating = true;
     state.nextStepIndex = 0;
     state.locationStatus = "Dev test route running with simulated GPS at Hulftegg Passhoehe.";
+    void updateRuntimeKeepAlive();
     await updateGlass();
     render();
   }
@@ -1777,6 +1848,7 @@ function startDevDriving(): void {
   state.navigating = true;
   state.devDriving = true;
   state.error = null;
+  void updateRuntimeKeepAlive();
   devDriveDistanceMeters = distanceAlongRoute(state.route.geometry, state.position?.coordinate ?? state.route.geometry[0]);
   lastDevDriveAt = performance.now();
   devDriveTimer = window.setInterval(tickDevDriving, 250);
@@ -1792,6 +1864,7 @@ function stopDevDriving(status?: string): void {
 
   if (state.devDriving) {
     state.devDriving = false;
+    void updateRuntimeKeepAlive();
   }
 
   if (status) {
@@ -1813,6 +1886,7 @@ function cancelNavigation(status = "Navigation stopped."): void {
   state.offRouteSampleCount = 0;
   state.error = null;
   state.locationStatus = status;
+  void updateRuntimeKeepAlive();
   void updateGlass();
   render();
 }
@@ -1906,6 +1980,7 @@ function startNavigation(): void {
 
   if (!state.route) {
     state.startWhenRouteReady = true;
+    void updateRuntimeKeepAlive();
     render();
     void ensureRouteReady().then(() => {
       render();
@@ -1917,6 +1992,7 @@ function startNavigation(): void {
   state.navigating = true;
   state.nextStepIndex = 0;
   state.offRouteSampleCount = 0;
+  void updateRuntimeKeepAlive();
   void updateGlass();
   render();
 }
