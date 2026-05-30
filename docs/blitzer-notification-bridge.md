@@ -39,7 +39,11 @@ It can arrive through either:
 - `window.postMessage(payload, "*")`
 - `document.dispatchEvent(new CustomEvent("apexline-native-bridge", { detail: payload }))`
 
-The existing alert interpolation then keeps the displayed distance smooth between sparse notification updates.
+The alert estimator treats each forwarded notification as a correction point.
+Between sparse updates, Apexline integrates the current speed and speed changes
+to keep the displayed distance moving instead of freezing at the last reported
+value, then snaps/corrects again when the next 150 m or similar notification
+arrives.
 
 ## Hard Limitation
 

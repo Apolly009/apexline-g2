@@ -1,6 +1,12 @@
 import { makeGuidanceSnapshot, makeIdleSnapshot, type GuidanceHazardAlert, type GuidanceSnapshot, type PositionSample } from "./guidance";
 import { GlassDisplay, type GlassImuSample } from "./glasses";
 import {
+  advanceBlitzerDistanceEstimate,
+  correctBlitzerDistanceEstimate,
+  createBlitzerDistanceEstimate,
+  type BlitzerDistanceEstimate
+} from "./blitzerDistance";
+import {
   estimateAccelerationLockOffset,
   headingFromOrientationEvent,
   imuYawDeltaDegrees,
@@ -107,6 +113,7 @@ type BlitzerAlert = {
   distanceMeters: number;
   interpolatedDistanceMeters: number;
   distanceUpdatedAt: number;
+  distanceEstimate: BlitzerDistanceEstimate;
   speedLimitKph: number | null;
   reportedAt: number;
   expiresAt: number;
@@ -2067,8 +2074,10 @@ function ingestBlitzerAlert(input: BlitzerAlertInput | string, fallbackSource: B
   }
 
   markBlitzerBridgeActive({ ttlSeconds: normalized.source === "dev" ? 180 : undefined });
-  state.blitzerAlert = normalized;
-  state.blitzerReportStatus = "Blitzer alert received";
+  state.blitzerAlert = mergeBlitzerAlertUpdate(state.blitzerAlert, normalized);
+  state.blitzerReportStatus = state.blitzerAlert.distanceEstimate.notificationCount > 1
+    ? "Blitzer distance corrected"
+    : "Blitzer alert received";
   startBlitzerDistanceInterpolation();
   startBlitzerPulse();
   void updateGlass();
@@ -2161,16 +2170,46 @@ function normalizeBlitzerAlertInput(input: BlitzerAlertInput | string, fallbackS
     : finitePositive(sourceInput.speedLimitKph) ?? parsed.speedLimitKph;
   const now = Date.now();
   const ttlMs = Math.max(30000, Math.min(30 * 60 * 1000, (sourceInput.ttlSeconds ?? BLITZER_ALERT_TTL_MS / 1000) * 1000));
+  const distanceEstimate = createBlitzerDistanceEstimate(distanceMeters, now, currentBlitzerSpeedMetersPerSecond());
   return {
     id: `blitzer-${now}`,
     label: sourceInput.label ?? parsed.label ?? "Speed camera",
     distanceMeters,
     interpolatedDistanceMeters: distanceMeters,
     distanceUpdatedAt: now,
+    distanceEstimate,
     speedLimitKph: speedLimitKph ?? null,
     reportedAt: now,
     expiresAt: now + ttlMs,
     source: sourceInput.source ?? fallbackSource,
+    reportStatus: "unreported"
+  };
+}
+
+function mergeBlitzerAlertUpdate(existingAlert: BlitzerAlert | null, notificationAlert: BlitzerAlert): BlitzerAlert {
+  if (!existingAlert || Date.now() > existingAlert.expiresAt) {
+    return notificationAlert;
+  }
+
+  updateBlitzerDistanceEstimate(existingAlert);
+  const now = notificationAlert.reportedAt;
+  const distanceEstimate = correctBlitzerDistanceEstimate(
+    existingAlert.distanceEstimate,
+    notificationAlert.distanceMeters,
+    now,
+    currentBlitzerSpeedMetersPerSecond()
+  );
+
+  return {
+    ...existingAlert,
+    label: notificationAlert.label,
+    distanceMeters: notificationAlert.distanceMeters,
+    interpolatedDistanceMeters: distanceEstimate.distanceMeters,
+    distanceUpdatedAt: distanceEstimate.updatedAt,
+    distanceEstimate,
+    speedLimitKph: notificationAlert.speedLimitKph ?? existingAlert.speedLimitKph,
+    expiresAt: Math.max(existingAlert.expiresAt, notificationAlert.expiresAt),
+    source: notificationAlert.source,
     reportStatus: "unreported"
   };
 }
@@ -2207,19 +2246,9 @@ function currentBlitzerAlert(): BlitzerAlert | null {
 
 function updateBlitzerDistanceEstimate(alert: BlitzerAlert): void {
   const now = Date.now();
-  const elapsedSeconds = Math.max(0, Math.min(3, (now - alert.distanceUpdatedAt) / 1000));
-  if (elapsedSeconds <= 0) {
-    return;
-  }
-
-  const speed = currentBlitzerSpeedMetersPerSecond();
-  if (speed == null || speed <= 0.2) {
-    alert.distanceUpdatedAt = now;
-    return;
-  }
-
-  alert.interpolatedDistanceMeters = Math.max(0, alert.interpolatedDistanceMeters - speed * elapsedSeconds);
-  alert.distanceUpdatedAt = now;
+  alert.distanceEstimate = advanceBlitzerDistanceEstimate(alert.distanceEstimate, now, currentBlitzerSpeedMetersPerSecond());
+  alert.interpolatedDistanceMeters = alert.distanceEstimate.distanceMeters;
+  alert.distanceUpdatedAt = alert.distanceEstimate.updatedAt;
 }
 
 function currentBlitzerSpeedMetersPerSecond(): number | null {

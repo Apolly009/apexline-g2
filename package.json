@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
-    "test:heading": "tsc -p tsconfig.heading-tests.json && node --test tests/heading.test.mjs",
+    "test:heading": "tsc -p tsconfig.heading-tests.json && node --test tests/heading.test.mjs tests/blitzerDistance.test.mjs",
     "network:check": "node scripts/check-network-whitelist.mjs",
     "release:check": "npm run build && npm run network:check && npm run listing:screenshots:validate && npm run pack",
     "preview": "vite preview --host 0.0.0.0",

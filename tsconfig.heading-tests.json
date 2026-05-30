@@ -7,5 +7,5 @@
     "declaration": false,
     "sourceMap": false
   },
-  "include": ["src/heading.ts"]
+  "include": ["src/heading.ts", "src/blitzerDistance.ts"]
 }
