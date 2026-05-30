@@ -15,6 +15,7 @@ import {
   type PlanarVector,
   smoothHeadingDegrees
 } from "./heading";
+import { waitForEvenAppBridge } from "@evenrealities/even_hub_sdk";
 import L, { type LatLngExpression, type Map as LeafletMap } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -97,6 +98,8 @@ type AppState = {
   lastAccelerationLockAt: number;
   locationSource: "gps" | "manual" | "simulated" | null;
   locationStatus: string;
+  lastLocationError: LocationDiagnostic | null;
+  favoriteStorageStatus: string;
   nextStepIndex: number;
   error: string | null;
 };
@@ -143,6 +146,21 @@ type BlitzerBridgeMessage = {
     reason?: string;
   };
 };
+type LocationDiagnostic = {
+  source: "getCurrentPosition" | "watchPosition" | "feature-check" | "secure-context";
+  target: "origin" | "destination";
+  code: number | null;
+  codeName: string;
+  message: string;
+  at: number;
+  secureContext: boolean;
+  hasGeolocation: boolean;
+};
+type StoredFavoritesEnvelope = {
+  version: 1;
+  updatedAt: number;
+  favorites: PlaceResult[];
+};
 type WakeLockSentinelLike = {
   release: () => Promise<void>;
   addEventListener: (type: "release", listener: () => void) => void;
@@ -154,6 +172,7 @@ type WakeLockNavigator = Navigator & {
 };
 
 const FAVORITES_STORAGE_KEY = "apexline-favorites";
+const FAVORITES_ENVELOPE_STORAGE_KEY = "apexline-favorites-v2";
 const UNIT_SYSTEM_STORAGE_KEY = "apexline-unit-system";
 const HEADING_SOURCE_STORAGE_KEY = "apexline-heading-source";
 const SIDE_ROADS_STORAGE_KEY = "apexline-side-roads";
@@ -178,6 +197,7 @@ const GLASSES_HOME_TRANSITION_MS = 650;
 const GLASSES_HOME_TRANSITION_FRAME_MS = 90;
 const GLASSES_POST_SPLASH_INPUT_GUARD_MS = 450;
 const DEV_DRIVE_TICK_MS = 125;
+const EVEN_STORAGE_TIMEOUT_MS = 1800;
 
 const state: AppState = {
   mode: "motorcycle",
@@ -243,6 +263,8 @@ const state: AppState = {
   lastAccelerationLockAt: 0,
   locationSource: null,
   locationStatus: "No location yet",
+  lastLocationError: null,
+  favoriteStorageStatus: "Favorites saved on this phone.",
   nextStepIndex: 0,
   error: null
 };
@@ -307,6 +329,7 @@ async function boot(): Promise<void> {
   installRuntimeKeepAliveHandlers();
   render();
   state.bridgeConnected = await glassDisplay.connect(handleGlassInput, handleGlassesImu);
+  void hydrateFavoritesFromEvenStorage();
   if (state.headingSource === "phone" || state.headingSource === "glasses") {
     void startPhoneHeadingTracking(false);
   }
@@ -857,7 +880,7 @@ function render(): void {
           </div>
         ` : ""}
 
-        ${state.error ? `<p class="error">${escapeHtml(state.error)}</p>` : ""}
+        ${renderErrorPanel()}
         <p class="location-note">${escapeHtml(state.locationStatus)}</p>
       </section>
 
@@ -1026,7 +1049,7 @@ function renderFavoritesManager(): string {
         <span>Favorites</span>
         <strong>Saved places</strong>
       </div>
-      <p>One shared list for start and destination.</p>
+      <p>One shared list for start and destination. ${escapeHtml(state.favoriteStorageStatus)}</p>
     </div>
     ${state.favorites.length === 0 ? `
       <p class="favorites-empty">Save a start or destination to route from the phone or glasses.</p>
@@ -1047,6 +1070,33 @@ function renderFavoritesManager(): string {
         `).join("")}
       </div>
     `}
+  `;
+}
+
+function renderErrorPanel(): string {
+  if (!state.error) {
+    return "";
+  }
+
+  const diagnostic = state.lastLocationError;
+  return `
+    <div class="error-row">
+      <p class="error">${escapeHtml(state.error)}</p>
+      ${diagnostic ? `
+        <details class="error-help">
+          <summary aria-label="Location troubleshooting" title="Location troubleshooting">?</summary>
+          <div>
+            <strong>${escapeHtml(diagnostic.codeName)}</strong>
+            <span>Source: ${escapeHtml(diagnostic.source)} / ${escapeHtml(diagnostic.target)}</span>
+            <span>Code: ${diagnostic.code ?? "n/a"}</span>
+            <span>Message: ${escapeHtml(diagnostic.message || "No platform message")}</span>
+            <span>Time: ${escapeHtml(new Date(diagnostic.at).toLocaleTimeString())}</span>
+            <span>Secure: ${diagnostic.secureContext ? "yes" : "no"} · Geolocation API: ${diagnostic.hasGeolocation ? "yes" : "no"}</span>
+            <p>${escapeHtml(locationTroubleshootingHint(diagnostic))}</p>
+          </div>
+        </details>
+      ` : ""}
+    </div>
   `;
 }
 
@@ -1759,23 +1809,12 @@ function normalizeFavorite(place: PlaceResult): PlaceResult {
 
 function loadFavorites(): PlaceResult[] {
   try {
-    const raw = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
-    if (!raw) {
-      return [];
+    const envelope = parseFavoritesEnvelope(window.localStorage.getItem(FAVORITES_ENVELOPE_STORAGE_KEY));
+    if (envelope) {
+      return envelope.favorites;
     }
 
-    const parsed = JSON.parse(raw) as PlaceResult[];
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    const validFavorites = parsed.filter((favorite) =>
-      typeof favorite.id === "string" &&
-      typeof favorite.label === "string" &&
-      typeof favorite.coordinate?.lat === "number" &&
-      typeof favorite.coordinate?.lon === "number"
-    );
-    return dedupeFavorites(validFavorites).slice(0, 20);
+    return parseFavoritesArray(window.localStorage.getItem(FAVORITES_STORAGE_KEY));
   } catch {
     return [];
   }
@@ -1783,7 +1822,137 @@ function loadFavorites(): PlaceResult[] {
 
 function saveFavorites(): void {
   state.favorites = dedupeFavorites(state.favorites).slice(0, 20);
-  window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(state.favorites));
+  const envelope = makeFavoritesEnvelope(state.favorites);
+  try {
+    window.localStorage.setItem(FAVORITES_ENVELOPE_STORAGE_KEY, JSON.stringify(envelope));
+    window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(envelope.favorites));
+    state.favoriteStorageStatus = "Saved on phone.";
+  } catch (error) {
+    state.favoriteStorageStatus = `Phone save failed: ${toMessage(error)}`;
+  }
+
+  void saveFavoritesToEvenStorage(envelope);
+}
+
+async function hydrateFavoritesFromEvenStorage(): Promise<void> {
+  const bridge = await evenStorageBridge();
+  if (!bridge) {
+    state.favoriteStorageStatus = "Saved on phone. Even storage unavailable.";
+    render();
+    return;
+  }
+
+  try {
+    const remoteEnvelope = parseFavoritesEnvelope(await bridge.getLocalStorage(FAVORITES_ENVELOPE_STORAGE_KEY));
+    const remoteLegacy = remoteEnvelope ? [] : parseFavoritesArray(await bridge.getLocalStorage(FAVORITES_STORAGE_KEY));
+    const localEnvelope = parseFavoritesEnvelope(window.localStorage.getItem(FAVORITES_ENVELOPE_STORAGE_KEY));
+    const localFavorites = localEnvelope?.favorites ?? state.favorites;
+    const remoteFavorites = remoteEnvelope?.favorites ?? remoteLegacy;
+
+    if (remoteEnvelope && (!localEnvelope || remoteEnvelope.updatedAt > localEnvelope.updatedAt)) {
+      state.favorites = remoteFavorites;
+    } else if (!remoteEnvelope && localFavorites.length === 0 && remoteFavorites.length > 0) {
+      state.favorites = remoteFavorites;
+    } else {
+      state.favorites = dedupeFavorites([...localFavorites, ...remoteFavorites]).slice(0, 20);
+    }
+
+    normalizeFavoriteIndexes();
+    state.favoriteStorageStatus = "Saved on phone and Even app.";
+    writeFavoritesLocally(makeFavoritesEnvelope(state.favorites));
+    render();
+    void updateGlass();
+  } catch (error) {
+    state.favoriteStorageStatus = `Even storage load failed: ${toMessage(error)}`;
+    render();
+  }
+}
+
+async function saveFavoritesToEvenStorage(envelope: StoredFavoritesEnvelope): Promise<void> {
+  const bridge = await evenStorageBridge();
+  if (!bridge) {
+    state.favoriteStorageStatus = "Saved on phone. Even storage unavailable.";
+    render();
+    return;
+  }
+
+  try {
+    const savedEnvelope = await bridge.setLocalStorage(FAVORITES_ENVELOPE_STORAGE_KEY, JSON.stringify(envelope));
+    const savedLegacy = await bridge.setLocalStorage(FAVORITES_STORAGE_KEY, JSON.stringify(envelope.favorites));
+    state.favoriteStorageStatus = savedEnvelope && savedLegacy
+      ? "Saved on phone and Even app."
+      : "Saved on phone. Even storage returned false.";
+  } catch (error) {
+    state.favoriteStorageStatus = `Saved on phone. Even storage failed: ${toMessage(error)}`;
+  }
+
+  render();
+}
+
+function writeFavoritesLocally(envelope: StoredFavoritesEnvelope): void {
+  window.localStorage.setItem(FAVORITES_ENVELOPE_STORAGE_KEY, JSON.stringify(envelope));
+  window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(envelope.favorites));
+}
+
+function makeFavoritesEnvelope(favorites: PlaceResult[]): StoredFavoritesEnvelope {
+  return {
+    version: 1,
+    updatedAt: Date.now(),
+    favorites: dedupeFavorites(favorites).slice(0, 20)
+  };
+}
+
+function parseFavoritesEnvelope(raw: string | null): StoredFavoritesEnvelope | null {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredFavoritesEnvelope>;
+    if (parsed.version !== 1 || typeof parsed.updatedAt !== "number" || !Array.isArray(parsed.favorites)) {
+      return null;
+    }
+
+    return {
+      version: 1,
+      updatedAt: parsed.updatedAt,
+      favorites: validFavorites(parsed.favorites)
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseFavoritesArray(raw: string | null): PlaceResult[] {
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? validFavorites(parsed) : [];
+  } catch {
+    return [];
+  }
+}
+
+function validFavorites(values: unknown[]): PlaceResult[] {
+  return dedupeFavorites(values.filter((favorite): favorite is PlaceResult =>
+    isObjectRecord(favorite) &&
+    typeof favorite.id === "string" &&
+    typeof favorite.label === "string" &&
+    isObjectRecord(favorite.coordinate) &&
+    typeof favorite.coordinate.lat === "number" &&
+    typeof favorite.coordinate.lon === "number"
+  )).slice(0, 20);
+}
+
+async function evenStorageBridge(): Promise<Awaited<ReturnType<typeof waitForEvenAppBridge>> | null> {
+  try {
+    return await withTimeout(waitForEvenAppBridge(), EVEN_STORAGE_TIMEOUT_MS);
+  } catch {
+    return null;
+  }
 }
 
 function dedupeFavorites(favorites: PlaceResult[]): PlaceResult[] {
@@ -2600,6 +2769,7 @@ async function runOriginSearch(): Promise<void> {
 function startLocationWatch(target: "origin" | "destination" = "origin"): void {
   if (!("geolocation" in navigator)) {
     state.error = "This WebView does not expose location services.";
+    state.lastLocationError = makeLocationDiagnostic("feature-check", target, null, "navigator.geolocation is missing");
     state.locationStatus = target === "origin"
       ? "Tap the Start field, then tap the map as a fallback."
       : "Tap the Destination field, then tap the map as a fallback.";
@@ -2609,6 +2779,7 @@ function startLocationWatch(target: "origin" | "destination" = "origin"): void {
 
   if (!window.isSecureContext) {
     state.error = "Location requires a secure WebView or localhost.";
+    state.lastLocationError = makeLocationDiagnostic("secure-context", target, null, "window.isSecureContext is false");
     state.locationStatus = target === "origin"
       ? "Tap the Start field, then tap the map for local testing."
       : "Tap the Destination field, then tap the map for local testing.";
@@ -2619,6 +2790,7 @@ function startLocationWatch(target: "origin" | "destination" = "origin"): void {
   state.locating = true;
   state.locatingFor = target;
   state.error = null;
+  state.lastLocationError = null;
   state.locationStatus = target === "origin"
     ? "Requesting phone location for start..."
     : "Requesting phone location for destination...";
@@ -2639,6 +2811,7 @@ function startLocationWatch(target: "origin" | "destination" = "origin"): void {
     (error) => {
       state.locating = false;
       state.locatingFor = null;
+      state.lastLocationError = makeLocationDiagnostic("getCurrentPosition", target, error, error.message);
       state.error = geolocationErrorMessage(error);
       state.locationStatus = geolocationFallbackStatus(error, target);
       if (target === "origin") {
@@ -2660,6 +2833,7 @@ function startGpsWatch(clearErrors = true): void {
     (error) => {
       state.locating = false;
       state.locatingFor = null;
+      state.lastLocationError = makeLocationDiagnostic("watchPosition", "origin", error, error.message);
       if (clearErrors) {
         state.error = geolocationErrorMessage(error);
       }
@@ -2698,6 +2872,7 @@ function applyGpsOrigin(position: GeolocationPosition): void {
   state.originSearching = false;
   state.locationStatus = `Phone GPS locked (${position.coords.accuracy.toFixed(0)} m accuracy).`;
   state.error = null;
+  state.lastLocationError = null;
   handleOriginPositionChanged();
 }
 
@@ -2717,6 +2892,7 @@ function applyGpsDestination(position: GeolocationPosition): void {
   applyDestination(state.selectedPlace);
   state.locationStatus = `Destination set to current location (${position.coords.accuracy.toFixed(0)} m accuracy).`;
   state.error = null;
+  state.lastLocationError = null;
   void ensureRouteReady();
 }
 
@@ -4272,6 +4448,40 @@ function geolocationErrorMessage(error: GeolocationPositionError): string {
   return error.message || "Location failed.";
 }
 
+function makeLocationDiagnostic(
+  source: LocationDiagnostic["source"],
+  target: "origin" | "destination",
+  error: GeolocationPositionError | null,
+  message: string
+): LocationDiagnostic {
+  return {
+    source,
+    target,
+    code: error?.code ?? null,
+    codeName: error ? geolocationCodeName(error.code) : source === "feature-check" ? "GEOLOCATION_API_MISSING" : "INSECURE_CONTEXT",
+    message,
+    at: Date.now(),
+    secureContext: window.isSecureContext,
+    hasGeolocation: "geolocation" in navigator
+  };
+}
+
+function geolocationCodeName(code: number): string {
+  if (code === 1) {
+    return "PERMISSION_DENIED";
+  }
+
+  if (code === 2) {
+    return "POSITION_UNAVAILABLE";
+  }
+
+  if (code === 3) {
+    return "TIMEOUT";
+  }
+
+  return `UNKNOWN_${code}`;
+}
+
 function geolocationFallbackStatus(error: GeolocationPositionError, target: "origin" | "destination"): string {
   const fallback = target === "origin"
     ? "Tap the Start field, then tap the map to choose a starting point."
@@ -4292,6 +4502,30 @@ function geolocationFallbackStatus(error: GeolocationPositionError, target: "ori
   return `Phone GPS unavailable. ${fallback}`;
 }
 
+function locationTroubleshootingHint(diagnostic: LocationDiagnostic): string {
+  if (diagnostic.codeName === "PERMISSION_DENIED") {
+    return "Check iOS Settings > Apps > Even Realities > Location, enable Precise Location, fully quit and reopen Even, then try Use current location again.";
+  }
+
+  if (diagnostic.codeName === "POSITION_UNAVAILABLE") {
+    return "The phone accepted the request but did not return a fix. Try outdoors, disable Low Power Mode temporarily, reopen Even, then retry.";
+  }
+
+  if (diagnostic.codeName === "TIMEOUT") {
+    return "The request took too long. Keep Even open in the foreground for 15 seconds and retry, or select a start point on the map.";
+  }
+
+  if (diagnostic.codeName === "GEOLOCATION_API_MISSING") {
+    return "The host WebView did not expose the browser geolocation API. Reopen the app from Even Hub, update Even, or use a map start point.";
+  }
+
+  if (diagnostic.codeName === "INSECURE_CONTEXT") {
+    return "The page is not running in a secure WebView context. This should not happen in Even Hub; use the map start fallback for now.";
+  }
+
+  return "Restart Even, phone, and glasses, then retry. If it repeats, send the code/source shown here.";
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -4303,4 +4537,27 @@ function escapeHtml(value: string): string {
 
 function toMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong";
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      reject(new Error("Timed out"));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
 }

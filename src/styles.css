@@ -645,6 +645,69 @@ h1 {
   color: #ffc2b8;
 }
 
+.error-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.error-help {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.error-help summary {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255, 194, 184, 0.52);
+  border-radius: 999px;
+  color: #ffc2b8;
+  background: rgba(232, 95, 63, 0.12);
+  cursor: pointer;
+  font-weight: 900;
+  list-style: none;
+}
+
+.error-help summary::-webkit-details-marker {
+  display: none;
+}
+
+.error-help[open] summary {
+  border-color: rgba(248, 223, 140, 0.72);
+  color: #f8df8c;
+}
+
+.error-help div {
+  position: absolute;
+  right: 0;
+  z-index: 1200;
+  display: grid;
+  gap: 5px;
+  width: min(360px, calc(100vw - 42px));
+  margin-top: 8px;
+  border: 1px solid rgba(255, 194, 184, 0.28);
+  border-radius: 8px;
+  padding: 12px;
+  color: #f6eeea;
+  background: rgba(18, 15, 14, 0.98);
+  box-shadow: 0 18px 58px rgba(0, 0, 0, 0.36);
+}
+
+.error-help span,
+.error-help p {
+  margin: 0;
+  color: #dccbc6;
+  font-size: 0.82rem;
+  line-height: 1.38;
+}
+
+.error-help strong {
+  color: #ffc2b8;
+  font-size: 0.86rem;
+}
+
 .map-pane {
   overflow: hidden;
   border: 1px solid rgba(243, 244, 239, 0.16);
