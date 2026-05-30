@@ -2,7 +2,7 @@ import SwiftUI
 
 @available(iOS 26.5, *)
 @main
-struct ApexlineNotificationBridgeApp: App {
+struct ApexLineNotificationBridgeApp: App {
     @StateObject private var controller = AccessoryForwardingController()
 
     var body: some Scene {
@@ -56,7 +56,7 @@ struct BridgeStatusView: View {
                     }
                 }
             }
-            .navigationTitle("Apexline Bridge")
+            .navigationTitle("ApexLine Bridge")
         }
     }
 }

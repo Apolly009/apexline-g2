@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Apexline Bridge</string>
+	<string>ApexLine Bridge</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -27,7 +27,7 @@
 		<string>Bluetooth</string>
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Apexline Bridge uses Bluetooth accessory authorization so iOS can forward selected speed camera notifications to the bridge.</string>
+	<string>ApexLine Bridge uses Bluetooth accessory authorization so iOS can forward selected speed camera notifications to the bridge.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
