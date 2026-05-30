@@ -148,7 +148,7 @@ type BlitzerBridgeMessage = {
 };
 type LocationRequestMode = "balanced" | "precise";
 type LocationDiagnostic = {
-  source: "getCurrentPosition-balanced" | "getCurrentPosition-precise" | "watchPosition" | "feature-check" | "secure-context";
+  source: "watchPosition-initial" | "watchPosition" | "feature-check" | "secure-context";
   target: "origin" | "destination";
   code: number | null;
   codeName: string;
@@ -2877,60 +2877,30 @@ function startLocationWatch(target: "origin" | "destination" = "origin"): void {
     positionWatchId = null;
   }
 
-  requestCurrentPosition(target, "balanced");
+  startInitialGpsWatch(target);
   updateLocationRequestUi(target);
 }
 
-function requestCurrentPosition(target: "origin" | "destination", mode: LocationRequestMode): void {
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      applyCurrentLocation(position, target);
-      if (target === "origin") {
-        startGpsWatch();
-      }
-      updatePlannerUiAfterPositionChange();
-      void updateGlass();
-    },
-    (error) => {
-      const source = mode === "balanced" ? "getCurrentPosition-balanced" : "getCurrentPosition-precise";
-      state.lastLocationError = makeLocationDiagnostic(source, target, error, error.message);
-
-      if (mode === "balanced" && error.code !== error.PERMISSION_DENIED) {
-        state.locationStatus = "Phone location did not answer yet. Trying precise GPS...";
-        updateStatusPanel();
-        requestCurrentPosition(target, "precise");
-        return;
-      }
-
-      state.locating = false;
-      state.locatingFor = null;
-      state.error = geolocationErrorMessage(error);
-      state.locationStatus = geolocationFallbackStatus(error, target);
-      if (target === "origin" && error.code !== error.PERMISSION_DENIED) {
-        startGpsWatch(false);
-      }
-      updateLocationRequestUi(target);
-    },
-    locationOptions(mode)
-  );
-}
-
-function startGpsWatch(clearErrors = true): void {
+function startInitialGpsWatch(target: "origin" | "destination"): void {
   positionWatchId = navigator.geolocation.watchPosition(
     (position) => {
-      applyGpsOrigin(position);
-      void updateGlass();
+      applyCurrentLocation(position, target);
+
+      if (target === "destination" && positionWatchId != null) {
+        navigator.geolocation.clearWatch(positionWatchId);
+        positionWatchId = null;
+      }
+
       updatePlannerUiAfterPositionChange();
+      void updateGlass();
     },
     (error) => {
       state.locating = false;
       state.locatingFor = null;
-      state.lastLocationError = makeLocationDiagnostic("watchPosition", "origin", error, error.message);
-      if (clearErrors) {
-        state.error = geolocationErrorMessage(error);
-      }
-      state.locationStatus = geolocationFallbackStatus(error, "origin");
-      updatePlannerUiAfterPositionChange();
+      state.lastLocationError = makeLocationDiagnostic("watchPosition-initial", target, error, error.message);
+      state.error = geolocationErrorMessage(error);
+      state.locationStatus = geolocationFallbackStatus(error, target);
+      updateLocationRequestUi(target);
     },
     locationOptions("precise")
   );
