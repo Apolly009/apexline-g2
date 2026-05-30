@@ -1,4 +1,4 @@
-# Apex Bike Roadmap
+# ApexBike Roadmap
 
 These are planned ideas, not current release features.
 

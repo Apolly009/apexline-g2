@@ -1,4 +1,4 @@
-# Apex Bike Release Assets
+# ApexBike Release Assets
 
 Portal assets for the first EvenHub submission.
 

@@ -1,7 +1,7 @@
-# Apex Bike
+# ApexBike
 
 Bicycle-first navigation for Even Realities G2. This project is ported from the
-stable Apexline main app and keeps the same phone planner, OpenStreetMap map,
+stable car navigation main app and keeps the same phone planner, OpenStreetMap map,
 favorites, glasses menu, arrow HUD, map HUD, simulator tools, and release flow,
 with routing and guidance tuned for bicycles.
 
@@ -24,7 +24,7 @@ with routing and guidance tuned for bicycles.
 - Shows current speed during active guidance when the Speed display setting is
   enabled.
 - Supports glasses/ring input:
-  - Cold boot shows a short Apex Bike splash, then flows into the glasses home
+  - Cold boot shows a short ApexBike splash, then flows into the glasses home
     menu. Tap/click skips the splash.
   - Home menu: swipe up/down moves between Navigation, Speed, and Settings;
     click selects, double press exits.
@@ -57,7 +57,7 @@ With the dev server running:
 evenhub-simulator --automation-port 9898 http://localhost:5173
 ```
 
-Developer tools are hidden in the normal phone UI. Tap the Apex Bike title five
+Developer tools are hidden in the normal phone UI. Tap the ApexBike title five
 times to toggle them for the current session, or open with `?devTools=1`.
 They reset to hidden on every fresh app load. Dev launch flags remain available
 for simulator testing, for example `?devRoute=1&view=map&autoRide=1`.

@@ -109,7 +109,7 @@ export class GlassDisplay {
         }
       });
 
-      const created = await this.createPage("Apex Bike\nRide ready\nWaiting for route", "startup");
+      const created = await this.createPage("ApexBike\nRide ready\nWaiting for route", "startup");
       if (!created) {
         this.bridge = null;
         this.ready = false;
@@ -189,7 +189,7 @@ export class GlassDisplay {
       paddingLength: 0,
       containerID: STARTUP_NOTICE_CONTAINER_ID,
       containerName: STARTUP_NOTICE_CONTAINER_NAME,
-      content: "Apex Bike started\nContinue on phone",
+      content: "ApexBike started\nContinue on phone",
       isEventCapture: 0
     });
     const images = IMAGE_TILES.map((tile) => new ImageContainerProperty({
@@ -716,7 +716,7 @@ function drawIdleImage(
   fallbackContent: string
 ): void {
   const lines = fallbackContent.split("\n").filter(Boolean);
-  const title = snapshot?.title ?? lines[0] ?? "Apex Bike";
+  const title = snapshot?.title ?? lines[0] ?? "ApexBike";
   const primary = snapshot?.primary ?? lines[1] ?? "Ride ready";
   const secondary = snapshot?.secondary ?? lines[2] ?? "Waiting for route";
   const tertiary = snapshot?.tertiary ?? snapshot?.hint ?? "";
