@@ -4,11 +4,13 @@ public struct ApexlineBridgeEnvelope<Payload: Codable & Sendable>: Codable, Send
     public let type: String
     public let alert: Payload?
     public let heartbeat: ApexlineBridgeHeartbeat?
+    public let clear: ApexlineBridgeClear?
 
-    public init(type: String, alert: Payload? = nil, heartbeat: ApexlineBridgeHeartbeat? = nil) {
+    public init(type: String, alert: Payload? = nil, heartbeat: ApexlineBridgeHeartbeat? = nil, clear: ApexlineBridgeClear? = nil) {
         self.type = type
         self.alert = alert
         self.heartbeat = heartbeat
+        self.clear = clear
     }
 }
 
@@ -19,6 +21,14 @@ public struct ApexlineBridgeHeartbeat: Codable, Sendable {
     public init(ttlSeconds: Int = 120, status: String = "Accessory notification bridge armed") {
         self.ttlSeconds = ttlSeconds
         self.status = status
+    }
+}
+
+public struct ApexlineBridgeClear: Codable, Sendable {
+    public let reason: String
+
+    public init(reason: String = "Blitzer notification cleared") {
+        self.reason = reason
     }
 }
 

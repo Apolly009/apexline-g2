@@ -51,6 +51,18 @@ while still using the forwarded notification payload as a silent correction
 source for Apexline. If iOS does not forward a notification at all because the
 source app is disabled for notification forwarding, Apexline cannot recover it.
 
+When iOS removes forwarded Blitzer notifications, the bridge emits
+`apexline.blitzer.clear` so Apexline can hide the warning. Apexline also has a
+fallback pass detector: once the interpolated distance reaches zero, the alert
+clears after roughly 250 m of additional travel or after a short zero-distance
+timeout if speed data is unavailable.
+
+Screen-off behavior still depends on the host app/native runtime. Apexline now
+requests a screen wake lock during active navigation or active Blitzer alerts
+where the WebView supports it, and warns when the page becomes hidden, but a
+manual phone lock can still suspend JavaScript/GPS if EvenHub does not provide
+background execution.
+
 ## Hard Limitation
 
 A standalone iOS companion app cannot directly inspect or mutate the Even Realities app's WebView. Even's native app can display notifications because it is the registered glasses companion. For Apexline, this bridge still needs one final handoff:

@@ -114,6 +114,8 @@ type BlitzerAlert = {
   interpolatedDistanceMeters: number;
   distanceUpdatedAt: number;
   distanceEstimate: BlitzerDistanceEstimate;
+  passedAt: number | null;
+  passedDistanceMeters: number;
   speedLimitKph: number | null;
   reportedAt: number;
   expiresAt: number;
@@ -137,6 +139,18 @@ type BlitzerBridgeMessage = {
   kind?: string;
   alert?: BlitzerAlertInput | string;
   heartbeat?: BlitzerBridgeHeartbeatInput;
+  clear?: {
+    reason?: string;
+  };
+};
+type WakeLockSentinelLike = {
+  release: () => Promise<void>;
+  addEventListener: (type: "release", listener: () => void) => void;
+};
+type WakeLockNavigator = Navigator & {
+  wakeLock?: {
+    request: (type: "screen") => Promise<WakeLockSentinelLike>;
+  };
 };
 
 const FAVORITES_STORAGE_KEY = "apexline-favorites";
@@ -150,6 +164,8 @@ const ARROW_LAYOUT_STORAGE_KEY = "apexline-arrow-layout";
 const BLITZER_ENABLED_STORAGE_KEY = "apexline-blitzer-enabled";
 const BLITZER_ALERT_TTL_MS = 8 * 60 * 1000;
 const BLITZER_BRIDGE_ACTIVE_MS = 45000;
+const BLITZER_CLEAR_AFTER_PASSED_METERS = 250;
+const BLITZER_CLEAR_AFTER_ZERO_MS = 45000;
 const BLITZER_PULSE_FRAME_MS = 120;
 const BLITZER_PULSE_FRAMES = 28;
 const GLASSES_SPLASH_MS = 3450;
@@ -280,12 +296,14 @@ let ignoreGlassInputUntil = 0;
 let blitzerPulseTimer: number | null = null;
 let blitzerDistanceTimer: number | null = null;
 let blitzerPulseFrame = 0;
+let screenWakeLock: WakeLockSentinelLike | null = null;
 
 void boot();
 
 async function boot(): Promise<void> {
   applyLaunchOptions();
   installDevGlassHarness();
+  installRuntimeKeepAliveHandlers();
   render();
   state.bridgeConnected = await glassDisplay.connect(handleGlassInput, handleGlassesImu);
   if (state.headingSource === "phone" || state.headingSource === "glasses") {
@@ -399,6 +417,7 @@ function installDevGlassHarness(): void {
     __apexlineDevGlassImu?: (sample: number | Partial<GlassImuSample>) => void;
     __apexlineDevPhoneMotion?: (sample: Partial<PlanarVector>) => void;
     __apexlineBlitzerAlert?: (alert: BlitzerAlertInput | string) => void;
+    __apexlineClearBlitzerAlert?: (reason?: string) => void;
     __apexlineBlitzerBridgeHeartbeat?: (heartbeat?: BlitzerBridgeHeartbeatInput) => void;
     __apexlineDebugState?: () => Record<string, unknown>;
   };
@@ -426,6 +445,9 @@ function installDevGlassHarness(): void {
   };
   devWindow.__apexlineBlitzerAlert = (alert) => {
     ingestBlitzerAlert(alert, "dev");
+  };
+  devWindow.__apexlineClearBlitzerAlert = (reason) => {
+    clearBlitzerAlert(reason ?? "Blitzer alert cleared by bridge.");
   };
   devWindow.__apexlineBlitzerBridgeHeartbeat = (heartbeat) => {
     markBlitzerBridgeActive(heartbeat);
@@ -465,6 +487,64 @@ function installDevGlassHarness(): void {
   window.addEventListener("message", (event) => {
     ingestNativeBridgeMessage(event.data);
   });
+}
+
+function installRuntimeKeepAliveHandlers(): void {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      void updateRuntimeKeepAlive();
+      return;
+    }
+
+    if (shouldKeepRuntimeAwake()) {
+      state.locationStatus = "Phone display locked or hidden. iOS may pause GPS/HUD updates unless Even keeps Apexline alive.";
+      void updateGlass();
+      render();
+    }
+  });
+}
+
+async function updateRuntimeKeepAlive(): Promise<void> {
+  if (!shouldKeepRuntimeAwake() || document.visibilityState !== "visible") {
+    await releaseScreenWakeLock();
+    return;
+  }
+
+  if (screenWakeLock != null) {
+    return;
+  }
+
+  const wakeLock = (navigator as WakeLockNavigator).wakeLock;
+  if (!wakeLock) {
+    return;
+  }
+
+  try {
+    screenWakeLock = await wakeLock.request("screen");
+    screenWakeLock.addEventListener("release", () => {
+      screenWakeLock = null;
+    });
+  } catch {
+    screenWakeLock = null;
+  }
+}
+
+function shouldKeepRuntimeAwake(): boolean {
+  return state.navigating || state.startWhenRouteReady || state.routing || state.devDriving || state.blitzerAlert != null;
+}
+
+async function releaseScreenWakeLock(): Promise<void> {
+  if (screenWakeLock == null) {
+    return;
+  }
+
+  const lock = screenWakeLock;
+  screenWakeLock = null;
+  try {
+    await lock.release();
+  } catch {
+    // The browser may release the lock before our cleanup runs.
+  }
 }
 
 function devDebugSnapshot(): Record<string, unknown> {
@@ -2045,6 +2125,12 @@ function ingestNativeBridgeMessage(message: unknown): void {
 
   if (type === "apexline.blitzer.alert" && payload.alert != null) {
     ingestBlitzerAlert(payload.alert, "accessory");
+    return;
+  }
+
+  if (type === "apexline.blitzer.clear") {
+    markBlitzerBridgeActive({ status: payload.clear?.reason ?? "Blitzer notification cleared" });
+    clearBlitzerAlert(payload.clear?.reason ?? "Blitzer notification cleared.");
   }
 }
 
@@ -2080,6 +2166,7 @@ function ingestBlitzerAlert(input: BlitzerAlertInput | string, fallbackSource: B
     : "Blitzer alert received";
   startBlitzerDistanceInterpolation();
   startBlitzerPulse();
+  void updateRuntimeKeepAlive();
   void updateGlass();
   render();
   syncDevDebugState();
@@ -2101,6 +2188,7 @@ function clearBlitzerAlert(status = "No Blitzer alert"): void {
   state.blitzerReportStatus = status;
   stopBlitzerPulse();
   stopBlitzerDistanceInterpolation();
+  void updateRuntimeKeepAlive();
   void updateGlass();
   render();
   syncDevDebugState();
@@ -2178,6 +2266,8 @@ function normalizeBlitzerAlertInput(input: BlitzerAlertInput | string, fallbackS
     interpolatedDistanceMeters: distanceMeters,
     distanceUpdatedAt: now,
     distanceEstimate,
+    passedAt: null,
+    passedDistanceMeters: 0,
     speedLimitKph: speedLimitKph ?? null,
     reportedAt: now,
     expiresAt: now + ttlMs,
@@ -2207,6 +2297,8 @@ function mergeBlitzerAlertUpdate(existingAlert: BlitzerAlert | null, notificatio
     interpolatedDistanceMeters: distanceEstimate.distanceMeters,
     distanceUpdatedAt: distanceEstimate.updatedAt,
     distanceEstimate,
+    passedAt: null,
+    passedDistanceMeters: 0,
     speedLimitKph: notificationAlert.speedLimitKph ?? existingAlert.speedLimitKph,
     expiresAt: Math.max(existingAlert.expiresAt, notificationAlert.expiresAt),
     source: notificationAlert.source,
@@ -2241,14 +2333,38 @@ function currentBlitzerAlert(): BlitzerAlert | null {
   }
 
   updateBlitzerDistanceEstimate(state.blitzerAlert);
+  if (shouldAutoClearBlitzerAlert(state.blitzerAlert, Date.now())) {
+    clearBlitzerAlert("Blitzer passed.");
+    return null;
+  }
   return state.blitzerAlert;
 }
 
 function updateBlitzerDistanceEstimate(alert: BlitzerAlert): void {
   const now = Date.now();
-  alert.distanceEstimate = advanceBlitzerDistanceEstimate(alert.distanceEstimate, now, currentBlitzerSpeedMetersPerSecond());
+  const previousDistance = alert.distanceEstimate.distanceMeters;
+  const previousUpdatedAt = alert.distanceEstimate.updatedAt;
+  const speed = currentBlitzerSpeedMetersPerSecond();
+  alert.distanceEstimate = advanceBlitzerDistanceEstimate(alert.distanceEstimate, now, speed);
   alert.interpolatedDistanceMeters = alert.distanceEstimate.distanceMeters;
   alert.distanceUpdatedAt = alert.distanceEstimate.updatedAt;
+
+  if (alert.distanceEstimate.distanceMeters > 0.5) {
+    return;
+  }
+
+  if (alert.passedAt == null) {
+    alert.passedAt = now;
+    alert.passedDistanceMeters = Math.max(0, (speed ?? 0) * Math.max(0, (now - previousUpdatedAt) / 1000) - previousDistance);
+    return;
+  }
+
+  alert.passedDistanceMeters += Math.max(0, speed ?? 0) * Math.max(0, Math.min(8, (now - previousUpdatedAt) / 1000));
+}
+
+function shouldAutoClearBlitzerAlert(alert: BlitzerAlert, now: number): boolean {
+  return alert.passedDistanceMeters >= BLITZER_CLEAR_AFTER_PASSED_METERS ||
+    (alert.passedAt != null && now - alert.passedAt >= BLITZER_CLEAR_AFTER_ZERO_MS);
 }
 
 function currentBlitzerSpeedMetersPerSecond(): number | null {
@@ -2615,6 +2731,7 @@ async function ensureRouteReady(): Promise<void> {
     if (state.startWhenRouteReady) {
       state.startWhenRouteReady = false;
       state.navigating = true;
+      void updateRuntimeKeepAlive();
       await updateGlass();
     }
   } catch (error) {
@@ -2755,6 +2872,7 @@ function startDevDriving(): void {
   state.navigating = true;
   state.devDriving = true;
   state.error = null;
+  void updateRuntimeKeepAlive();
   devDriveDistanceMeters = distanceAlongRoute(state.route.geometry, state.position?.coordinate ?? state.route.geometry[0]);
   lastDevDriveAt = performance.now();
   devDriveTimer = window.setInterval(tickDevDriving, DEV_DRIVE_TICK_MS);
@@ -2770,6 +2888,7 @@ function stopDevDriving(status?: string): void {
 
   if (state.devDriving) {
     state.devDriving = false;
+    void updateRuntimeKeepAlive();
   }
 
   if (status) {
@@ -2791,6 +2910,7 @@ function cancelNavigation(status = "Navigation stopped."): void {
   state.offRouteSampleCount = 0;
   state.error = null;
   state.locationStatus = status;
+  void updateRuntimeKeepAlive();
   void updateGlass();
   render();
 }
@@ -2884,6 +3004,7 @@ function startNavigation(): void {
 
   if (!state.route) {
     state.startWhenRouteReady = true;
+    void updateRuntimeKeepAlive();
     render();
     void ensureRouteReady().then(() => {
       render();
@@ -2895,6 +3016,7 @@ function startNavigation(): void {
   state.navigating = true;
   state.nextStepIndex = 0;
   state.offRouteSampleCount = 0;
+  void updateRuntimeKeepAlive();
   void updateGlass();
   render();
 }

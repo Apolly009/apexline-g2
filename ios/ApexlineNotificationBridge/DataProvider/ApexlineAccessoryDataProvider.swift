@@ -61,10 +61,16 @@ final class BlitzerNotificationHandler: NotificationsForwarding.AccessoryNotific
 
     func removeNotification(identifier: AccessoryNotification.Identifier) {
         logger.info("Removed forwarded notification \(identifier.notificationIdentifier)")
+        Task {
+            try? await sendClear(reason: "Blitzer notification removed")
+        }
     }
 
     func removeAllNotifications() {
         logger.info("Removed all forwarded notifications")
+        Task {
+            try? await sendClear(reason: "Blitzer notifications cleared")
+        }
     }
 
     func messageHandler(_ message: TransportMessage) {
@@ -96,6 +102,14 @@ final class BlitzerNotificationHandler: NotificationsForwarding.AccessoryNotific
         let envelope = ApexlineBridgeEnvelope(
             type: "apexline.blitzer.alert",
             alert: alert
+        )
+        try await send(envelope)
+    }
+
+    private func sendClear(reason: String) async throws {
+        let envelope = ApexlineBridgeEnvelope<ApexlineBlitzerAlert>(
+            type: "apexline.blitzer.clear",
+            clear: ApexlineBridgeClear(reason: reason)
         )
         try await send(envelope)
     }
