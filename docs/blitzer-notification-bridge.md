@@ -45,6 +45,12 @@ to keep the displayed distance moving instead of freezing at the last reported
 value, then snaps/corrects again when the next 150 m or similar notification
 arrives.
 
+The iOS data-provider bridge also accepts Blitzer alerts that iOS marks as
+suppressed by Focus. That lets Driving Focus hide the normal phone notification
+while still using the forwarded notification payload as a silent correction
+source for Apexline. If iOS does not forward a notification at all because the
+source app is disabled for notification forwarding, Apexline cannot recover it.
+
 ## Hard Limitation
 
 A standalone iOS companion app cannot directly inspect or mutate the Even Realities app's WebView. Even's native app can display notifications because it is the registered glasses companion. For Apexline, this bridge still needs one final handoff:

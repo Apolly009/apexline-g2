@@ -37,16 +37,16 @@ final class BlitzerNotificationHandler: NotificationsForwarding.AccessoryNotific
     }
 
     func addNotification(_ notification: AccessoryNotification, alertingContext: AlertingContext) async throws -> Bool {
-        guard alertingContext.shouldAlert else {
-            return false
-        }
-
         guard let alert = parse(notification) else {
             return false
         }
 
+        guard alertingContext.shouldAlert || alertingContext.isSuppressedByFocus else {
+            return false
+        }
+
         try await sendAlert(alert)
-        return true
+        return alertingContext.shouldAlert
     }
 
     func updateNotification(_ notification: AccessoryNotification) {
