@@ -17,9 +17,9 @@ Local SDK verification was done against Xcode's iPhoneOS 26.5 SDK. The public in
 - `NotificationsForwarding.AccessoryNotificationsHandler.addNotification(_:alertingContext:)`
 - `NotificationsForwarding.Session.send(message:)`
 
-## Apexline Ingestion
+## ApexLine Ingestion
 
-Apexline now accepts a normalized native bridge message:
+ApexLine now accepts a normalized native bridge message:
 
 ```json
 {
@@ -40,7 +40,7 @@ It can arrive through either:
 - `document.dispatchEvent(new CustomEvent("apexline-native-bridge", { detail: payload }))`
 
 The alert estimator treats each forwarded notification as a correction point.
-Between sparse updates, Apexline integrates the current speed and speed changes
+Between sparse updates, ApexLine integrates the current speed and speed changes
 to keep the displayed distance moving instead of freezing at the last reported
 value, then snaps/corrects again when the next 150 m or similar notification
 arrives.
@@ -48,28 +48,28 @@ arrives.
 The iOS data-provider bridge also accepts Blitzer alerts that iOS marks as
 suppressed by Focus. That lets Driving Focus hide the normal phone notification
 while still using the forwarded notification payload as a silent correction
-source for Apexline. If iOS does not forward a notification at all because the
-source app is disabled for notification forwarding, Apexline cannot recover it.
+source for ApexLine. If iOS does not forward a notification at all because the
+source app is disabled for notification forwarding, ApexLine cannot recover it.
 
 When iOS removes forwarded Blitzer notifications, the bridge emits
-`apexline.blitzer.clear` so Apexline can hide the warning. Apexline also has a
+`apexline.blitzer.clear` so ApexLine can hide the warning. ApexLine also has a
 fallback pass detector: once the interpolated distance reaches zero, the alert
 clears after roughly 250 m of additional travel or after a short zero-distance
 timeout if speed data is unavailable.
 
-Apexline requests the Even Hub background-services permission in the Hub listing
+ApexLine requests the Even Hub background-services permission in the Hub listing
 and also requests a screen wake lock during active navigation or active Blitzer
 alerts where the WebView supports it. Keep `min_app_version` aligned with Even
 host releases that include the locked-phone/background plug-in fixes.
 
 ## Hard Limitation
 
-A standalone iOS companion app cannot directly inspect or mutate the Even Realities app's WebView. Even's native app can display notifications because it is the registered glasses companion. For Apexline, this bridge still needs one final handoff:
+A standalone iOS companion app cannot directly inspect or mutate the Even Realities app's WebView. Even's native app can display notifications because it is the registered glasses companion. For ApexLine, this bridge still needs one final handoff:
 
 - Even exposes a native-to-EvenHub-web message API, or
-- the companion app sends the normalized JSON to a small relay endpoint and Apexline polls/streams it, or
-- a real accessory/relay receives the official accessory notification payload and returns the normalized alert to Apexline.
+- the companion app sends the normalized JSON to a small relay endpoint and ApexLine polls/streams it, or
+- a real accessory/relay receives the official accessory notification payload and returns the normalized alert to ApexLine.
 
 ## Why Not Spoof Bluetooth
 
-iOS notification forwarding is intentionally permissioned around real accessories and user-approved app forwarding. Spoofing a Bluetooth accessory in software is brittle, likely review-hostile, and still would not give Apexline direct access to the Even app WebView.
+iOS notification forwarding is intentionally permissioned around real accessories and user-approved app forwarding. Spoofing a Bluetooth accessory in software is brittle, likely review-hostile, and still would not give ApexLine direct access to the Even app WebView.

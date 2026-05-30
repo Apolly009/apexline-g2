@@ -126,7 +126,7 @@ export class GlassDisplay {
         }
       });
 
-      const created = await this.createPage("Apexline\nRide ready\nWaiting for route", "startup");
+      const created = await this.createPage("ApexLine\nRide ready\nWaiting for route", "startup");
       if (!created) {
         this.bridge = null;
         this.ready = false;
@@ -207,7 +207,7 @@ export class GlassDisplay {
       paddingLength: 0,
       containerID: STARTUP_NOTICE_CONTAINER_ID,
       containerName: STARTUP_NOTICE_CONTAINER_NAME,
-      content: "Apexline started\nContinue on phone",
+      content: "ApexLine started\nContinue on phone",
       isEventCapture: 0
     });
     const images = IMAGE_TILES.map((tile) => new ImageContainerProperty({
@@ -791,7 +791,7 @@ function drawIdleImage(
   fallbackContent: string
 ): void {
   const lines = fallbackContent.split("\n").filter(Boolean);
-  const title = snapshot?.title ?? lines[0] ?? "Apexline";
+  const title = snapshot?.title ?? lines[0] ?? "ApexLine";
   const primary = snapshot?.primary ?? lines[1] ?? "Ride ready";
   const secondary = snapshot?.secondary ?? lines[2] ?? "Waiting for route";
   const tertiary = snapshot?.tertiary ?? snapshot?.hint ?? "";
@@ -892,7 +892,7 @@ function drawStartupSplash(context: CanvasRenderingContext2D, frame: number, tra
 
   drawRotatedVehicleMarker(context, marker.x, marker.y, markerNext.x - marker.x, markerNext.y - marker.y, 0.72 + (phase % 3) * 0.05);
 
-  drawMorphingApexline(context, progress);
+  drawMorphingApexLine(context, progress);
 
   context.fillStyle = "rgba(221, 255, 227, 0.78)";
   context.font = "bold 13px system-ui, sans-serif";
@@ -940,7 +940,7 @@ function drawStartupTransition(context: CanvasRenderingContext2D, frame: number)
   context.restore();
 }
 
-function drawMorphingApexline(context: CanvasRenderingContext2D, progress: number): void {
+function drawMorphingApexLine(context: CanvasRenderingContext2D, progress: number): void {
   const apexAlpha = Math.min(1, Math.max(0, (progress - 0.24) / 0.12));
   const lineAlpha = Math.min(1, Math.max(0, (progress - 0.76) / 0.12));
   const merge = Math.min(1, Math.max(0, (progress - 0.86) / 0.14));

@@ -1,4 +1,4 @@
-# Apexline Release Assets
+# ApexLine Release Assets
 
 Portal assets for the first EvenHub submission.
 

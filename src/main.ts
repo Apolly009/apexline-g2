@@ -162,6 +162,7 @@ const CONTROL_HINTS_STORAGE_KEY = "apexline-control-hints";
 const NIGHT_MODE_STORAGE_KEY = "apexline-night-mode";
 const ARROW_LAYOUT_STORAGE_KEY = "apexline-arrow-layout";
 const BLITZER_ENABLED_STORAGE_KEY = "apexline-blitzer-enabled";
+const EXPERIMENTAL_NOTICE_STORAGE_KEY = "apexline-experimental-notice-v1";
 const BLITZER_ALERT_TTL_MS = 8 * 60 * 1000;
 const BLITZER_BRIDGE_ACTIVE_MS = 45000;
 const BLITZER_CLEAR_AFTER_PASSED_METERS = 250;
@@ -766,7 +767,7 @@ function render(): void {
     <section class="shell">
       <header class="topbar">
         <div>
-          <h1 id="app-title">Apexline <span class="branch-tag">EXPERIMENTAL</span></h1>
+          <h1 id="app-title">ApexLine <span class="branch-tag">EXPERIMENTAL</span></h1>
           <p class="tagline">Ride the line. Drive the pass.</p>
         </div>
         <div class="topbar-actions">
@@ -778,6 +779,8 @@ function render(): void {
           </details>
         </div>
       </header>
+
+      ${renderExperimentalNotice()}
 
       <section class="panel route-panel">
         <div class="mode-row" role="group" aria-label="Travel mode">
@@ -912,6 +915,46 @@ function updateStatsCard(): void {
   if (guidanceCard) {
     guidanceCard.innerHTML = renderGuidancePanel();
   }
+}
+
+function renderExperimentalNotice(): string {
+  if (isExperimentalNoticeDismissed()) {
+    return "";
+  }
+
+  return `
+    <section class="experimental-notice" aria-label="Experimental tester note">
+      <div>
+        <p class="experimental-notice-kicker">Experimental tester build</p>
+        <h2>Help us tune ApexLine on real G2 glasses</h2>
+        <p>
+          This version includes experimental features and has not yet been personally verified by the developer on physical Even Realities G2 glasses.
+          First hardware checks are scheduled for next week, so UI placement, readability, ring/glasses controls, and routing feedback are especially useful.
+        </p>
+        <p class="experimental-notice-subhead">New in this experimental set:</p>
+        <ul>
+          <li>
+            <strong>HUD heading:</strong> Travel is the safe default. Phone compass aims the HUD from the phone heading.
+            G2 facing tries to keep the HUD aligned with where the glasses point by combining phone/course heading with G2 IMU changes; treat it as unverified and tell us if it drifts or feels wrong.
+          </li>
+          <li>
+            <strong>Blitzer.de PRO bridge:</strong> External bridge messages can show speed-camera alerts on the HUD.
+            Distance is estimated smoothly between sparse notification updates using current speed, then corrected when a new alert update arrives.
+          </li>
+          <li>
+            <strong>Background/runtime guard:</strong> Active routing, simulated drives, and active alerts request the Even Hub background-service path so they can keep updating more reliably.
+          </li>
+        </ul>
+        <p>
+          To test routing indoors, tap the ApexLine title five times, scroll below the map, then use the dev test route.
+          It simulates Hulftegg to Schwaegalp and lets you adjust speed while the glasses HUD is running.
+        </p>
+      </div>
+      <button class="experimental-notice-dismiss" data-dismiss-experimental-notice type="button">
+        Got it
+      </button>
+    </section>
+  `;
 }
 
 function renderSettingsMenu(): string {
@@ -1374,6 +1417,11 @@ function bindEvents(): void {
     render();
   });
 
+  document.querySelector<HTMLButtonElement>("[data-dismiss-experimental-notice]")?.addEventListener("click", () => {
+    saveExperimentalNoticeDismissed();
+    render();
+  });
+
   document.querySelector<HTMLElement>("#app-title")?.addEventListener("click", () => {
     titleTapCount += 1;
     if (titleTapResetTimer != null) {
@@ -1810,6 +1858,14 @@ function loadBlitzerEnabled(): boolean {
 
 function saveBlitzerEnabled(): void {
   window.localStorage.setItem(BLITZER_ENABLED_STORAGE_KEY, state.blitzerEnabled ? "1" : "0");
+}
+
+function isExperimentalNoticeDismissed(): boolean {
+  return window.localStorage.getItem(EXPERIMENTAL_NOTICE_STORAGE_KEY) === "1";
+}
+
+function saveExperimentalNoticeDismissed(): void {
+  window.localStorage.setItem(EXPERIMENTAL_NOTICE_STORAGE_KEY, "1");
 }
 
 function formatCurrentSpeed(): string {
@@ -3070,7 +3126,7 @@ function currentSnapshot(): GuidanceSnapshot {
 function splashGlassesSnapshot(): GuidanceSnapshot {
   return {
     active: false,
-    title: "Apexline",
+    title: "ApexLine",
     primary: "Ride the line",
     secondary: "Drive the pass",
     tertiary: "",
@@ -3154,7 +3210,7 @@ function homeMenuGlassesSnapshot(): GuidanceSnapshot {
   return {
     active: false,
     title: "Choose Mode",
-    primary: "Apexline",
+    primary: "ApexLine",
     secondary: blitzerAlert ? "Speed camera ahead" : hasRoute ? "Phone route ready" : hasFavorites ? "Favorites ready" : state.position ? "GPS ready" : "No GPS",
     tertiary: "",
     hint: state.showControlHints ? "Swipe move | Click select | Double back" : "",
