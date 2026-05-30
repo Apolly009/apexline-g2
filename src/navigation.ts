@@ -106,9 +106,9 @@ type RoadWayGeometry = {
   roadClass: IntersectionBranch["roadClass"];
 };
 
-const SIDE_ROAD_RADIUS_METERS = 76;
-const SIDE_ROAD_MAX_LENGTH_METERS = 130;
-const SIDE_ROAD_ROUTE_MATCH_DEGREES = 28;
+const SIDE_ROAD_RADIUS_METERS = 92;
+const SIDE_ROAD_MAX_LENGTH_METERS = 170;
+const SIDE_ROAD_ROUTE_MATCH_DEGREES = 18;
 const SIDE_ROAD_DUPLICATE_DEGREES = 10;
 const MAX_SIDE_ROAD_BRANCHES = 6;
 
@@ -380,7 +380,7 @@ async function attachIntersectionBranches(
 function shouldFetchIntersectionBranches(step: RouteStep, geometry: Coordinate[]): boolean {
   const type = step.maneuverType;
   if (type === "depart" || type === "arrive" || type === "continue") {
-    return false;
+    return hasAmbiguousContinueGeometry(step, geometry);
   }
 
   if (["turn", "end of road", "fork", "off ramp", "on ramp", "merge", "roundabout", "rotary"].includes(type)) {
@@ -388,10 +388,18 @@ function shouldFetchIntersectionBranches(step: RouteStep, geometry: Coordinate[]
   }
 
   if (type === "new name") {
-    return Math.abs(routeTurnAngleDegrees(geometry, step.maneuverLocation)) > 30;
+    return Math.abs(routeTurnAngleDegrees(geometry, step.maneuverLocation)) > 16 || hasDirectionalModifier(step.modifier);
   }
 
-  return false;
+  return hasDirectionalModifier(step.modifier) || Math.abs(routeTurnAngleDegrees(geometry, step.maneuverLocation)) > 20;
+}
+
+function hasAmbiguousContinueGeometry(step: RouteStep, geometry: Coordinate[]): boolean {
+  return hasDirectionalModifier(step.modifier) || Math.abs(routeTurnAngleDegrees(geometry, step.maneuverLocation)) > 18;
+}
+
+function hasDirectionalModifier(modifier: string): boolean {
+  return /left|right|fork|ramp|merge|slight|sharp/i.test(modifier);
 }
 
 async function fetchIntersectionRoadWays(

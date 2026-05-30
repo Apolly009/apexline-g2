@@ -17,9 +17,8 @@ type InputHandler = (action: "press" | "double" | "up" | "down" | "long") => voi
 
 const MAIN_CONTAINER_ID = 1;
 const MAIN_CONTAINER_NAME = "main";
-const STARTUP_NOTICE_CONTAINER_ID = 6;
-const STARTUP_NOTICE_CONTAINER_NAME = "launch";
-const STARTUP_NOTICE_MIN_MS = 2200;
+const FALLBACK_TEXT_CONTAINER_ID = 7;
+const FALLBACK_TEXT_CONTAINER_NAME = "fallback";
 const GLASS_WIDTH = 576;
 const GLASS_HEIGHT = 288;
 const TILE_WIDTH = 288;
@@ -33,7 +32,7 @@ const IMAGE_TILES = [
 const HUD_PRIMARY = "#7cff9e";
 const HUD_TEXT = "#ddffe3";
 const HUD_MUTED = "#82aa8d";
-const HUD_FAINT = "rgba(124, 255, 158, 0.2)";
+const HUD_FAINT = "rgba(124, 255, 158, 0.32)";
 const HUD_AMBER = "#f7d263";
 const HUD_FONT_ROUNDED = "system-ui, sans-serif";
 const HUD_FONT_SHARP = "Arial, Helvetica, sans-serif";
@@ -80,6 +79,7 @@ export class GlassDisplay {
   private bridge: Bridge | null = null;
   private ready = false;
   private lastContent = "";
+  private renderQueue: Promise<void> = Promise.resolve();
 
   async connect(onInput: InputHandler): Promise<boolean> {
     try {
@@ -138,8 +138,13 @@ export class GlassDisplay {
       return;
     }
 
-    await this.updateImage(snapshot, content);
-    this.lastContent = renderKey;
+    this.renderQueue = this.renderQueue
+      .catch(() => undefined)
+      .then(async () => {
+        await this.updateImage(snapshot, content);
+        this.lastContent = renderKey;
+      });
+    await this.renderQueue;
   }
 
   async shutdown(): Promise<void> {
@@ -164,6 +169,33 @@ export class GlassDisplay {
       return false;
     }
 
+    const page = this.buildPage();
+
+    if (mode === "rebuild") {
+      const rebuilt = await this.bridge.rebuildPageContainer(new RebuildPageContainer(this.buildPage()));
+      console.info("[GlassDisplay] rebuildPageContainer", rebuilt);
+      if (rebuilt) {
+        await this.updateImage(snapshot, content);
+      }
+      return rebuilt;
+    }
+
+    const result = await this.bridge.createStartUpPageContainer(new CreateStartUpPageContainer(page));
+    console.info("[GlassDisplay] createStartUpPageContainer", result);
+    if (result === StartUpPageCreateResult.success) {
+      await this.updateImage(snapshot, content);
+      return true;
+    }
+
+    const rebuilt = await this.bridge.rebuildPageContainer(new RebuildPageContainer(page));
+    console.info("[GlassDisplay] startup fallback rebuildPageContainer", rebuilt);
+    if (rebuilt) {
+      await this.updateImage(snapshot, content);
+    }
+    return rebuilt;
+  }
+
+  private buildPage() {
     const eventCapture = new TextContainerProperty({
       xPosition: 0,
       yPosition: 0,
@@ -178,20 +210,6 @@ export class GlassDisplay {
       content: "",
       isEventCapture: 1
     });
-    const startupNotice = new TextContainerProperty({
-      xPosition: 118,
-      yPosition: 104,
-      width: 340,
-      height: 80,
-      borderWidth: 0,
-      borderColor: 0,
-      borderRadius: 0,
-      paddingLength: 0,
-      containerID: STARTUP_NOTICE_CONTAINER_ID,
-      containerName: STARTUP_NOTICE_CONTAINER_NAME,
-      content: "ApexLine started\nContinue on phone",
-      isEventCapture: 0
-    });
     const images = IMAGE_TILES.map((tile) => new ImageContainerProperty({
       xPosition: tile.x,
       yPosition: tile.y,
@@ -200,39 +218,27 @@ export class GlassDisplay {
       containerID: tile.id,
       containerName: tile.name
     }));
+    const fallbackText = new TextContainerProperty({
+      xPosition: 30,
+      yPosition: 28,
+      width: 516,
+      height: 236,
+      borderWidth: 0,
+      borderColor: 0,
+      borderRadius: 0,
+      paddingLength: 0,
+      containerID: FALLBACK_TEXT_CONTAINER_ID,
+      containerName: FALLBACK_TEXT_CONTAINER_NAME,
+      content: "",
+      isEventCapture: 0
+    });
+    const textObject = [eventCapture, fallbackText];
 
-    const page = {
-      containerTotalNum: 2 + images.length,
-      textObject: [eventCapture, startupNotice],
+    return {
+      containerTotalNum: textObject.length + images.length,
+      textObject,
       imageObject: images
     };
-
-    if (mode === "rebuild") {
-      const rebuilt = await this.bridge.rebuildPageContainer(new RebuildPageContainer(page));
-      console.info("[GlassDisplay] rebuildPageContainer", rebuilt);
-      if (rebuilt) {
-        await this.updateImage(snapshot, content);
-      }
-      return rebuilt;
-    }
-
-    const result = await this.bridge.createStartUpPageContainer(new CreateStartUpPageContainer(page));
-    console.info("[GlassDisplay] createStartUpPageContainer", result);
-    if (result === StartUpPageCreateResult.success) {
-      await delay(STARTUP_NOTICE_MIN_MS);
-      await this.clearStartupNotice();
-      await this.updateImage(snapshot, content);
-      return true;
-    }
-
-    const rebuilt = await this.bridge.rebuildPageContainer(new RebuildPageContainer(page));
-    console.info("[GlassDisplay] startup fallback rebuildPageContainer", rebuilt);
-    if (rebuilt) {
-      await delay(STARTUP_NOTICE_MIN_MS);
-      await this.clearStartupNotice();
-      await this.updateImage(snapshot, content);
-    }
-    return rebuilt;
   }
 
   private async updateImage(snapshot: GuidanceSnapshot | undefined, fallbackContent: string): Promise<void> {
@@ -240,6 +246,8 @@ export class GlassDisplay {
     if (!bridge) {
       return;
     }
+
+    await this.updateFallbackText(fallbackContent);
 
     const tiles = renderGlassImageTiles(snapshot, fallbackContent);
     for (const tile of tiles) {
@@ -257,24 +265,33 @@ export class GlassDisplay {
     }
   }
 
-  private async clearStartupNotice(): Promise<void> {
+  private async updateFallbackText(content: string): Promise<void> {
     if (!this.bridge) {
       return;
     }
 
     try {
       await this.bridge.textContainerUpgrade(new TextContainerUpgrade({
-        containerID: STARTUP_NOTICE_CONTAINER_ID,
-        containerName: STARTUP_NOTICE_CONTAINER_NAME,
+        containerID: FALLBACK_TEXT_CONTAINER_ID,
+        containerName: FALLBACK_TEXT_CONTAINER_NAME,
         contentOffset: 0,
-        contentLength: 0,
-        content: ""
+        contentLength: 1000,
+        content: trimFallbackText(content)
       }));
     } catch (error) {
-      console.info("[GlassDisplay] clear startup notice failed", error);
+      console.info("[GlassDisplay] fallback text update failed", error);
     }
   }
 
+}
+
+function trimFallbackText(content: string): string {
+  return content
+    .split("\n")
+    .filter((line) => line.trim().length > 0 && !line.startsWith("----------------"))
+    .slice(0, 7)
+    .join("\n")
+    .slice(0, 480);
 }
 
 export function renderGlassText(snapshot: GuidanceSnapshot): string {
@@ -1253,10 +1270,17 @@ function drawStepRail(context: CanvasRenderingContext2D, activeIndex: number): v
   const steps = [88, 148, 208];
 
   context.strokeStyle = HUD_FAINT;
-  context.lineWidth = 2;
+  context.lineWidth = 3;
   context.beginPath();
   context.moveTo(62, steps[0]);
   context.lineTo(62, steps[2]);
+  context.stroke();
+
+  context.strokeStyle = "rgba(124, 255, 158, 0.88)";
+  context.lineWidth = 4;
+  context.beginPath();
+  context.moveTo(62, steps[0]);
+  context.lineTo(62, steps[Math.min(Math.max(activeIndex, 0), steps.length - 1)]);
   context.stroke();
 
   steps.forEach((y, index) => {
@@ -1844,11 +1868,6 @@ function trimImageLine(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
 }
 
-function delay(timeoutMs: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, timeoutMs);
-  });
-}
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
