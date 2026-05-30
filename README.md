@@ -84,6 +84,15 @@ npm run build
 npm run pack
 ```
 
+`app.json` requires Even Realities app `2.2.1` or newer for the latest Even
+Hub background plug-in fixes.
+
+For the full pre-upload gate, run:
+
+```bash
+npm run release:check
+```
+
 The packaged app is written to:
 
 ```text
