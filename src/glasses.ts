@@ -8,6 +8,7 @@ import {
   RebuildPageContainer,
   StartUpPageCreateResult,
   TextContainerProperty,
+  TextContainerUpgrade,
   waitForEvenAppBridge
 } from "@evenrealities/even_hub_sdk";
 import type { GuidanceHazardAlert, GuidanceSnapshot } from "./guidance";
@@ -20,6 +21,9 @@ type ImuHandler = (sample: GlassImuSample) => void;
 
 const MAIN_CONTAINER_ID = 1;
 const MAIN_CONTAINER_NAME = "main";
+const STARTUP_NOTICE_CONTAINER_ID = 6;
+const STARTUP_NOTICE_CONTAINER_NAME = "launch";
+const STARTUP_NOTICE_MIN_MS = 2200;
 const GLASS_WIDTH = 576;
 const GLASS_HEIGHT = 288;
 const TILE_WIDTH = 288;
@@ -35,6 +39,8 @@ const HUD_TEXT = "#ddffe3";
 const HUD_MUTED = "#82aa8d";
 const HUD_FAINT = "rgba(124, 255, 158, 0.2)";
 const HUD_AMBER = "#f7d263";
+const HUD_FONT_ROUNDED = "system-ui, sans-serif";
+const HUD_FONT_SHARP = "Arial, Helvetica, sans-serif";
 const MENU_X = 112;
 const BLITZER_LOGO_IMAGE = new Image();
 BLITZER_LOGO_IMAGE.src = blitzerLogoUrl;
@@ -104,14 +110,19 @@ export class GlassDisplay {
           onInput("long");
         } else if (/DOUBLE/.test(rawEventType) || normalizedEventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
           onInput("double");
-        } else if (/CLICK/.test(rawEventType) || normalizedEventType === OsEventTypeList.CLICK_EVENT) {
+        } else if (
+          /CLICK|TAP|PRESS|SELECT|CONFIRM|ENTER/.test(rawEventType) ||
+          normalizedEventType === OsEventTypeList.CLICK_EVENT ||
+          hasListSelection(event) ||
+          isBareGlassesSystemPress(event)
+        ) {
           onInput("press");
         } else if (/SCROLL_TOP|SCROLL_UP|SWIPE_UP|\bUP\b/.test(rawEventType) || normalizedEventType === OsEventTypeList.SCROLL_TOP_EVENT) {
           onInput("up");
         } else if (/SCROLL_BOTTOM|SCROLL_DOWN|SWIPE_DOWN|\bDOWN\b/.test(rawEventType) || normalizedEventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
           onInput("down");
         } else {
-          onInput("press");
+          console.info("[GlassDisplay] ignored unmapped event", rawEventType);
         }
       });
 
@@ -185,6 +196,20 @@ export class GlassDisplay {
       content: "",
       isEventCapture: 1
     });
+    const startupNotice = new TextContainerProperty({
+      xPosition: 118,
+      yPosition: 104,
+      width: 340,
+      height: 80,
+      borderWidth: 0,
+      borderColor: 0,
+      borderRadius: 0,
+      paddingLength: 0,
+      containerID: STARTUP_NOTICE_CONTAINER_ID,
+      containerName: STARTUP_NOTICE_CONTAINER_NAME,
+      content: "Apexline started\nContinue on phone",
+      isEventCapture: 0
+    });
     const images = IMAGE_TILES.map((tile) => new ImageContainerProperty({
       xPosition: tile.x,
       yPosition: tile.y,
@@ -195,8 +220,8 @@ export class GlassDisplay {
     }));
 
     const page = {
-      containerTotalNum: 1 + images.length,
-      textObject: [eventCapture],
+      containerTotalNum: 2 + images.length,
+      textObject: [eventCapture, startupNotice],
       imageObject: images
     };
 
@@ -212,6 +237,8 @@ export class GlassDisplay {
     const result = await this.bridge.createStartUpPageContainer(new CreateStartUpPageContainer(page));
     console.info("[GlassDisplay] createStartUpPageContainer", result);
     if (result === StartUpPageCreateResult.success) {
+      await delay(STARTUP_NOTICE_MIN_MS);
+      await this.clearStartupNotice();
       await this.updateImage(snapshot, content);
       return true;
     }
@@ -219,6 +246,8 @@ export class GlassDisplay {
     const rebuilt = await this.bridge.rebuildPageContainer(new RebuildPageContainer(page));
     console.info("[GlassDisplay] startup fallback rebuildPageContainer", rebuilt);
     if (rebuilt) {
+      await delay(STARTUP_NOTICE_MIN_MS);
+      await this.clearStartupNotice();
       await this.updateImage(snapshot, content);
     }
     return rebuilt;
@@ -231,7 +260,7 @@ export class GlassDisplay {
     }
 
     const tiles = renderGlassImageTiles(snapshot, fallbackContent);
-    await Promise.all(tiles.map(async (tile) => {
+    for (const tile of tiles) {
       const result = await bridge.updateImageRawData(
         new ImageRawDataUpdate({
           containerID: tile.id,
@@ -243,7 +272,25 @@ export class GlassDisplay {
       if (!ImageRawDataUpdateResult.isSuccess(result)) {
         console.info("[GlassDisplay] image update did not succeed", tile.name, result);
       }
-    }));
+    }
+  }
+
+  private async clearStartupNotice(): Promise<void> {
+    if (!this.bridge) {
+      return;
+    }
+
+    try {
+      await this.bridge.textContainerUpgrade(new TextContainerUpgrade({
+        containerID: STARTUP_NOTICE_CONTAINER_ID,
+        containerName: STARTUP_NOTICE_CONTAINER_NAME,
+        contentOffset: 0,
+        contentLength: 0,
+        content: ""
+      }));
+    } catch (error) {
+      console.info("[GlassDisplay] clear startup notice failed", error);
+    }
   }
 
   private async enableImuReporting(): Promise<void> {
@@ -322,6 +369,30 @@ function glassRenderKey(snapshot: GuidanceSnapshot, content: string): string {
   ].join("\n");
 }
 
+function hasListSelection(event: unknown): boolean {
+  const typedEvent = event as {
+    listEvent?: { currentSelectItemName?: unknown };
+  };
+  const selectedItem = typedEvent.listEvent?.currentSelectItemName;
+  return typeof selectedItem === "string" && selectedItem.trim().length > 0;
+}
+
+function isBareGlassesSystemPress(event: unknown): boolean {
+  const typedEvent = event as {
+    textEvent?: unknown;
+    listEvent?: unknown;
+    sysEvent?: { eventType?: unknown; eventSource?: unknown };
+  };
+
+  return Boolean(
+    typedEvent.sysEvent &&
+    !typedEvent.textEvent &&
+    !typedEvent.listEvent &&
+    typedEvent.sysEvent.eventType == null &&
+    typedEvent.sysEvent.eventSource != null
+  );
+}
+
 function eventTypeText(event: unknown, normalizedEventType: unknown): string {
   const typedEvent = event as {
     textEvent?: { eventType?: unknown };
@@ -382,8 +453,10 @@ function renderGlassImageTiles(
 
   context.fillStyle = "#000000";
   context.fillRect(0, 0, canvas.width, canvas.height);
+  context.imageSmoothingEnabled = false;
   context.lineCap = "round";
   context.lineJoin = "round";
+  installMaskedTextRenderer(context);
 
   if (snapshot?.active && snapshot.title === "Apex Map") {
     drawMapImage(context, snapshot);
@@ -393,11 +466,16 @@ function renderGlassImageTiles(
     drawIdleImage(context, snapshot, fallbackContent);
   }
 
+  normalizeHudPixels(context);
+
   return IMAGE_TILES.map((tile) => {
     const tileCanvas = document.createElement("canvas");
     tileCanvas.width = TILE_WIDTH;
     tileCanvas.height = TILE_HEIGHT;
     const tileContext = tileCanvas.getContext("2d");
+    if (tileContext) {
+      tileContext.imageSmoothingEnabled = false;
+    }
     tileContext?.drawImage(canvas, tile.x, tile.y, TILE_WIDTH, TILE_HEIGHT, 0, 0, TILE_WIDTH, TILE_HEIGHT);
     return {
       id: tile.id,
@@ -405,6 +483,185 @@ function renderGlassImageTiles(
       imageData: tileCanvas.toDataURL("image/png").split(",")[1] ?? ""
     };
   });
+}
+
+function normalizeHudPixels(context: CanvasRenderingContext2D): void {
+  const image = context.getImageData(0, 0, GLASS_WIDTH, GLASS_HEIGHT);
+  for (let index = 0; index < image.data.length; index += 4) {
+    const red = image.data[index];
+    const green = image.data[index + 1];
+    const blue = image.data[index + 2];
+    const intensity = Math.max(red, green, blue);
+    const level = hudPixelLevel(intensity);
+    image.data[index] = 0;
+    image.data[index + 1] = level;
+    image.data[index + 2] = 0;
+    image.data[index + 3] = 255;
+  }
+  context.putImageData(image, 0, 0);
+}
+
+function installMaskedTextRenderer(context: CanvasRenderingContext2D): void {
+  const nativeFillText = context.fillText.bind(context);
+  const nativeMeasureText = context.measureText.bind(context);
+
+  context.fillText = (text: string, x: number, y: number, maxWidth?: number) => {
+    drawMaskedText(context, nativeFillText, nativeMeasureText, String(text), x, y, maxWidth);
+  };
+}
+
+function drawMaskedText(
+  context: CanvasRenderingContext2D,
+  nativeFillText: CanvasRenderingContext2D["fillText"],
+  nativeMeasureText: CanvasRenderingContext2D["measureText"],
+  text: string,
+  x: number,
+  y: number,
+  maxWidth?: number
+): void {
+  if (!text) {
+    return;
+  }
+
+  const metrics = nativeMeasureText(text);
+  const fontSize = Number(context.font.match(/(\d+(?:\.\d+)?)px/)?.[1] ?? 14);
+  const padding = Math.max(8, Math.ceil(fontSize * 0.45));
+  const drawWidth = Math.max(1, Math.ceil(maxWidth ?? metrics.width));
+  const canvasWidth = Math.ceil(drawWidth + padding * 2);
+  const canvasHeight = Math.ceil(fontSize * 1.8 + padding * 2);
+  const scratch = document.createElement("canvas");
+  scratch.width = canvasWidth;
+  scratch.height = canvasHeight;
+  const scratchContext = scratch.getContext("2d");
+  if (!scratchContext) {
+    nativeFillText(text, x, y, maxWidth);
+    return;
+  }
+
+  scratchContext.font = context.font;
+  scratchContext.fillStyle = context.fillStyle;
+  scratchContext.textAlign = context.textAlign;
+  scratchContext.textBaseline = "alphabetic";
+  const scratchX = context.textAlign === "right"
+    ? canvasWidth - padding
+    : context.textAlign === "center"
+      ? canvasWidth / 2
+      : padding;
+  const scratchBaseline = padding + fontSize;
+  scratchContext.fillText(text, scratchX, scratchBaseline, maxWidth);
+
+  const image = scratchContext.getImageData(0, 0, canvasWidth, canvasHeight);
+  let maxAlpha = 0;
+  for (let index = 3; index < image.data.length; index += 4) {
+    maxAlpha = Math.max(maxAlpha, image.data[index]);
+  }
+  if (maxAlpha === 0) {
+    return;
+  }
+
+  const thresholdRatio = fontSize <= 18 ? 0.64 : 0.56;
+  const threshold = Math.max(18, maxAlpha * thresholdRatio);
+  for (let index = 0; index < image.data.length; index += 4) {
+    const alpha = image.data[index + 3];
+    if (alpha >= threshold) {
+      const strength = maxAlpha / 255;
+      image.data[index] = Math.round(image.data[index] * strength);
+      image.data[index + 1] = Math.round(image.data[index + 1] * strength);
+      image.data[index + 2] = Math.round(image.data[index + 2] * strength);
+      image.data[index + 3] = 255;
+    } else {
+      image.data[index] = 0;
+      image.data[index + 1] = 0;
+      image.data[index + 2] = 0;
+      image.data[index + 3] = 0;
+    }
+  }
+  cleanTextMaskArtifacts(image, canvasWidth, canvasHeight, fontSize);
+  scratchContext.putImageData(image, 0, 0);
+
+  const targetX = context.textAlign === "right"
+    ? Math.round(x - canvasWidth + padding)
+    : context.textAlign === "center"
+      ? Math.round(x - canvasWidth / 2)
+      : Math.round(x - padding);
+  const targetY = Math.round(y - scratchBaseline);
+  context.drawImage(scratch, targetX, targetY);
+}
+
+function cleanTextMaskArtifacts(image: ImageData, width: number, height: number, fontSize: number): void {
+  if (fontSize < 18) {
+    return;
+  }
+
+  const data = image.data;
+  const remove = new Uint8Array(width * height);
+  const alphaAt = (x: number, y: number): boolean => {
+    if (x < 0 || x >= width || y < 0 || y >= height) {
+      return false;
+    }
+    return data[(y * width + x) * 4 + 3] > 0;
+  };
+
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const index = y * width + x;
+      if (data[index * 4 + 3] === 0) {
+        continue;
+      }
+
+      const left = alphaAt(x - 1, y);
+      const right = alphaAt(x + 1, y);
+      const up = alphaAt(x, y - 1);
+      const down = alphaAt(x, y + 1);
+      const upLeft = alphaAt(x - 1, y - 1);
+      const upRight = alphaAt(x + 1, y - 1);
+      const downLeft = alphaAt(x - 1, y + 1);
+      const downRight = alphaAt(x + 1, y + 1);
+      const horizontal = left || right;
+      const vertical = up || down;
+      const above = up || upLeft || upRight;
+      const below = down || downLeft || downRight;
+      const leftCluster = left || upLeft || downLeft;
+      const rightCluster = right || upRight || downRight;
+
+      if (
+        (!horizontal && !above && below) ||
+        (!horizontal && !below && above) ||
+        (!vertical && !leftCluster && rightCluster) ||
+        (!vertical && !rightCluster && leftCluster)
+      ) {
+        remove[index] = 1;
+      }
+    }
+  }
+
+  for (let index = 0; index < remove.length; index += 1) {
+    if (remove[index] === 0) {
+      continue;
+    }
+
+    const dataIndex = index * 4;
+    data[dataIndex] = 0;
+    data[dataIndex + 1] = 0;
+    data[dataIndex + 2] = 0;
+    data[dataIndex + 3] = 0;
+  }
+}
+
+function hudPixelLevel(intensity: number): number {
+  if (intensity < 20) {
+    return 0;
+  }
+  if (intensity < 76) {
+    return 44;
+  }
+  if (intensity < 138) {
+    return 104;
+  }
+  if (intensity < 220) {
+    return 176;
+  }
+  return 255;
 }
 
 function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
@@ -426,7 +683,7 @@ function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSna
   }
 
   context.fillStyle = HUD_TEXT;
-  context.font = "bold 30px system-ui, sans-serif";
+  context.font = `bold 30px ${HUD_FONT_ROUNDED}`;
   context.textAlign = "right";
   context.fillText(formatPrimaryDistance(snapshot.primary), 534, 108);
 
@@ -438,17 +695,17 @@ function drawArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSna
   context.stroke();
 
   context.fillStyle = HUD_TEXT;
-  context.font = "bold 17px system-ui, sans-serif";
+  context.font = `bold 17px ${HUD_FONT_SHARP}`;
   context.fillText(formatPrimaryAction(snapshot.primary, snapshot.arrow), 534, 152);
   drawHudSpeedValue(context, snapshot, 534, 202, "right");
 
   context.fillStyle = HUD_MUTED;
-  context.font = "bold 12px system-ui, sans-serif";
+  context.font = `bold 12px ${HUD_FONT_SHARP}`;
   context.textAlign = "left";
   context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 22), 42, 252);
 
   context.fillStyle = HUD_PRIMARY;
-  context.font = "bold 13px system-ui, sans-serif";
+  context.font = `bold 13px ${HUD_FONT_SHARP}`;
   context.textAlign = "right";
   context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 24), 534, 252);
   if (snapshot.arrowLayout === "bottom") {
@@ -473,7 +730,7 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
   drawVehicleMarker(context, GLASS_WIDTH / 2, 246);
 
   context.fillStyle = HUD_TEXT;
-  context.font = "bold 26px system-ui, sans-serif";
+  context.font = `bold 26px ${HUD_FONT_ROUNDED}`;
   context.textAlign = "left";
   context.fillText(formatPrimaryDistance(snapshot.primary), 42, 104);
   context.strokeStyle = "rgba(247, 210, 99, 0.82)";
@@ -484,18 +741,18 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
   context.stroke();
 
   context.fillStyle = HUD_PRIMARY;
-  context.font = "bold 16px system-ui, sans-serif";
+  context.font = `bold 16px ${HUD_FONT_SHARP}`;
   context.textAlign = "right";
   context.fillText(formatPrimaryAction(snapshot.primary, snapshot.arrow), 534, 152);
   drawHudSpeedValue(context, snapshot, 534, 202, "right");
 
   context.fillStyle = HUD_MUTED;
-  context.font = "bold 11px system-ui, sans-serif";
+  context.font = `bold 11px ${HUD_FONT_SHARP}`;
   context.textAlign = "left";
   context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 22), 42, 252);
 
   context.fillStyle = HUD_PRIMARY;
-  context.font = "bold 13px system-ui, sans-serif";
+  context.font = `bold 13px ${HUD_FONT_SHARP}`;
   context.textAlign = "right";
   context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 24), 534, 252);
   drawNavigationHazardAlert(context, snapshot, 42, 128);
@@ -604,28 +861,28 @@ function drawStartupSplash(context: CanvasRenderingContext2D, frame: number, tra
   context.textAlign = "center";
   context.setLineDash([]);
 
-  context.strokeStyle = "rgba(124, 255, 158, 0.3)";
-  context.lineWidth = 11;
+  context.strokeStyle = "rgba(0, 0, 0, 0.46)";
+  context.lineWidth = 30;
   context.lineCap = "round";
   context.beginPath();
   drawSplashRoutePath(context, 0, 0, roadProgress);
   context.stroke();
 
-  context.strokeStyle = "rgba(0, 0, 0, 0.22)";
-  context.lineWidth = 10;
+  context.strokeStyle = "rgba(124, 255, 158, 0.26)";
+  context.lineWidth = 24;
   context.lineCap = "round";
   context.beginPath();
   drawSplashRoutePath(context, 0, 0, roadProgress);
   context.stroke();
 
-  context.strokeStyle = "rgba(124, 255, 158, 0.36)";
-  context.lineWidth = 3;
+  context.strokeStyle = "rgba(124, 255, 158, 0.48)";
+  context.lineWidth = 14;
   context.beginPath();
   drawSplashRoutePath(context, 0, 0, roadProgress);
   context.stroke();
 
-  context.strokeStyle = "rgba(221, 255, 227, 0.88)";
-  context.lineWidth = 2.2;
+  context.strokeStyle = "rgba(221, 255, 227, 0.96)";
+  context.lineWidth = 2.5;
   context.setLineDash([14, 11]);
   context.lineDashOffset = -phase * 6;
   context.beginPath();
@@ -648,7 +905,7 @@ function drawStartupSplash(context: CanvasRenderingContext2D, frame: number, tra
   context.lineTo(350, 246);
   context.stroke();
 
-  context.fillStyle = "rgba(221, 255, 227, 0.48)";
+  context.fillStyle = "rgba(221, 255, 227, 0.86)";
   context.font = "bold 10px system-ui, sans-serif";
   context.fillText("TAP TO SKIP", GLASS_WIDTH / 2, 266);
   context.restore();
@@ -951,9 +1208,9 @@ function drawFavoriteList(
   items.forEach((item, index) => {
     const y = top + index * (rowHeight + rowGap);
     const selected = Boolean(item.selected);
-    context.fillStyle = selected ? "rgba(124, 255, 158, 0.11)" : "rgba(124, 255, 158, 0.025)";
-    context.strokeStyle = selected ? "rgba(124, 255, 158, 0.86)" : "rgba(130, 170, 141, 0.2)";
-    context.lineWidth = selected ? 2 : 1.25;
+    context.fillStyle = selected ? "rgba(124, 255, 158, 0.14)" : "rgba(124, 255, 158, 0.025)";
+    context.strokeStyle = selected ? "rgba(124, 255, 158, 0.96)" : "rgba(124, 255, 158, 0.52)";
+    context.lineWidth = selected ? 2 : 1.5;
     roundRect(context, rowX, y, rowWidth, rowHeight, 7);
     context.fill();
     context.stroke();
@@ -1054,7 +1311,7 @@ function drawTinyHint(context: CanvasRenderingContext2D, hint: string, x: number
   }
 
   context.fillStyle = HUD_MUTED;
-  context.font = "bold 12px system-ui, sans-serif";
+  context.font = `bold 12px ${HUD_FONT_SHARP}`;
   context.textAlign = "left";
   context.fillText(trimImageLine(hint.replace(" | ", "  "), 42), x, y);
 }
@@ -1174,7 +1431,7 @@ function drawHudSpeedValue(
   }
 
   context.fillStyle = HUD_PRIMARY;
-  context.font = "bold 18px system-ui, sans-serif";
+  context.font = `bold 18px ${HUD_FONT_SHARP}`;
   context.textAlign = align;
   context.fillText(snapshot.speedLabel, x, y);
 }
@@ -1558,20 +1815,24 @@ function drawPreviewRoute(
     drawSideRoadBranches(context, snapshot.sideRoadBranches, transform, toPixel, mapMode);
   }
 
-  context.strokeStyle = mapMode ? "rgba(0, 0, 0, 0.5)" : "rgba(0, 0, 0, 0.5)";
-  context.lineWidth = outline ? mapMode ? 11 : 10 : mapMode ? 19 : 22;
+  context.strokeStyle = mapMode ? "rgba(0, 0, 0, 0.48)" : "rgba(0, 0, 0, 0.5)";
+  context.lineWidth = outline ? mapMode ? 11 : 10 : mapMode ? 30 : 30;
   drawSmoothPath(context, pixelPoints);
 
-  context.strokeStyle = mapMode ? "rgba(221, 255, 227, 0.1)" : "rgba(221, 255, 227, 0.12)";
-  context.lineWidth = outline ? mapMode ? 5 : 5 : mapMode ? 12 : 14;
+  context.strokeStyle = mapMode ? "rgba(124, 255, 158, 0.25)" : "rgba(124, 255, 158, 0.28)";
+  context.lineWidth = outline ? mapMode ? 8 : 8 : mapMode ? 24 : 24;
   drawSmoothPath(context, pixelPoints);
 
-  context.strokeStyle = mapMode ? "rgba(124, 255, 158, 0.56)" : HUD_PRIMARY;
-  context.lineWidth = outline ? mapMode ? 2.4 : 2.6 : mapMode ? 5 : 6;
+  context.strokeStyle = mapMode ? "rgba(124, 255, 158, 0.44)" : "rgba(124, 255, 158, 0.5)";
+  context.lineWidth = outline ? mapMode ? 5 : 5 : mapMode ? 12 : 13;
   drawSmoothPath(context, pixelPoints);
 
-  context.strokeStyle = mapMode ? "rgba(247, 210, 99, 0.42)" : "rgba(247, 210, 99, 0.72)";
-  context.lineWidth = outline ? 1.1 : mapMode ? 1.5 : 2.5;
+  context.strokeStyle = mapMode ? "rgba(124, 255, 158, 0.68)" : HUD_PRIMARY;
+  context.lineWidth = outline ? mapMode ? 2.4 : 2.6 : mapMode ? 4.2 : 5;
+  drawSmoothPath(context, pixelPoints);
+
+  context.strokeStyle = mapMode ? "rgba(247, 210, 99, 0.5)" : "rgba(247, 210, 99, 0.74)";
+  context.lineWidth = outline ? 1.1 : mapMode ? 2 : 2.5;
   drawSmoothPath(context, pixelPoints.slice(Math.max(0, pixelPoints.length - 5)));
 
   const end = pixelPoints[pixelPoints.length - 1];
@@ -1741,11 +2002,15 @@ function drawPremiumRoutePath(
   lineWidth: number,
   outline = false
 ): void {
+  context.save();
+  context.lineCap = outline ? "round" : "butt";
+  context.lineJoin = outline ? "round" : "miter";
+
   context.strokeStyle = "rgba(0, 0, 0, 0.62)";
   context.lineWidth = outline ? lineWidth + 4 : lineWidth + 8;
   drawSmoothPath(context, points);
 
-  context.strokeStyle = "rgba(221, 255, 227, 0.1)";
+  context.strokeStyle = outline ? "rgba(221, 255, 227, 0.1)" : "rgba(124, 255, 158, 0.2)";
   context.lineWidth = outline ? lineWidth + 1 : lineWidth + 2;
   drawSmoothPath(context, points);
 
@@ -1756,6 +2021,7 @@ function drawPremiumRoutePath(
   context.strokeStyle = outline ? "rgba(124, 255, 158, 0.22)" : "rgba(247, 210, 99, 0.74)";
   context.lineWidth = outline ? 0.9 : Math.max(1.6, lineWidth * 0.16);
   drawSmoothPath(context, points.slice(Math.max(0, points.length - 2)));
+  context.restore();
 }
 
 function isComplexManeuver(snapshot: GuidanceSnapshot): boolean {
@@ -1792,10 +2058,11 @@ function drawChevronArrowHead(
   const rightX = x + Math.sin(right) * size;
   const rightY = y - Math.cos(right) * size;
 
-  context.lineCap = "round";
-  context.lineJoin = "round";
+  context.save();
+  context.lineCap = outline ? "round" : "butt";
+  context.lineJoin = outline ? "round" : "miter";
   context.strokeStyle = "rgba(0, 0, 0, 0.62)";
-  context.lineWidth = outline ? 7 : 13;
+  context.lineWidth = outline ? 7 : 12;
   context.beginPath();
   context.moveTo(leftX, leftY);
   context.lineTo(x, y);
@@ -1803,21 +2070,13 @@ function drawChevronArrowHead(
   context.stroke();
 
   context.strokeStyle = HUD_PRIMARY;
-  context.lineWidth = outline ? 3.4 : 7;
+  context.lineWidth = outline ? 3.4 : 6.5;
   context.beginPath();
   context.moveTo(leftX, leftY);
   context.lineTo(x, y);
   context.lineTo(rightX, rightY);
   context.stroke();
-
-  if (!outline) {
-    context.strokeStyle = "rgba(247, 210, 99, 0.7)";
-    context.lineWidth = 2;
-    context.beginPath();
-    context.moveTo(x, y);
-    context.lineTo(x + Math.sin(radians) * size * 0.5, y - Math.cos(radians) * size * 0.5);
-    context.stroke();
-  }
+  context.restore();
 }
 
 function roundRect(
@@ -1855,6 +2114,12 @@ function stripLeadingArrow(value: string, arrow: string): string {
 
 function trimImageLine(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
+}
+
+function delay(timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, timeoutMs);
+  });
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

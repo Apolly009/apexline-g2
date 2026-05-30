@@ -87,6 +87,14 @@ npm run sim:screenshot
 
 The simulator screenshot is transparent; the script also writes a black-preview
 PNG for easier local review.
+Hub listing screenshots should use the transparent files in
+`release-assets/listing-screenshots`, not the `*-preview-black.png` review
+copies. Validate the listing set with:
+
+```bash
+npm run listing:screenshots:validate
+```
+
 With dev tools enabled, the phone/browser window also accepts keyboard gesture
 testing: Enter is click, ArrowUp/ArrowDown are swipes, D or Escape is double
 press, and L is long press.
@@ -120,6 +128,8 @@ heading.
 See `docs/g2-heading-hardware-checklist.md` before treating G2-facing heading
 as hardware-verified.
 
+See `docs/roadmap.md` for planned follow-up features.
+
 ## Build and pack
 
 ```bash
@@ -127,11 +137,20 @@ npm run build
 npm run pack
 ```
 
+For the full pre-upload gate, run:
+
+```bash
+npm run release:check
+```
+
 The packaged app is written to:
 
 ```text
 apexline.ehpk
 ```
+
+Before resubmitting to Even Hub, run through
+`docs/even-hub-resubmission-checklist.md`.
 
 ## Map services
 

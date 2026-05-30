@@ -3150,13 +3150,6 @@ function handleGlassInput(action: GlassAction): void {
     return;
   }
 
-  if (action === "long" && !state.navigating && (state.glassesScreen === "home" || state.glassesScreen === "homeMenu")) {
-    state.glassesScreen = "home";
-    void updateGlass();
-    render();
-    return;
-  }
-
   if (state.glassesScreen === "settings") {
     handleGlassesSettingsInput(action);
     return;

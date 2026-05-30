@@ -1,15 +1,22 @@
 {
   "name": "apexline-g2",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
     "test:heading": "tsc -p tsconfig.heading-tests.json && node --test tests/heading.test.mjs",
+    "network:check": "node scripts/check-network-whitelist.mjs",
+    "release:check": "npm run build && npm run network:check && npm run listing:screenshots:validate && npm run pack",
     "preview": "vite preview --host 0.0.0.0",
     "sim": "evenhub-simulator http://localhost:5173",
     "sim:screenshot": "node scripts/capture-glasses.mjs",
+    "listing:screenshot:home": "node scripts/capture-listing-screenshot.mjs home",
+    "listing:screenshot:arrow": "node scripts/capture-listing-screenshot.mjs arrow",
+    "listing:screenshot:map": "node scripts/capture-listing-screenshot.mjs map",
+    "screenshots:validate": "node scripts/validate-glasses-screenshots.mjs",
+    "listing:screenshots:validate": "node scripts/validate-glasses-screenshots.mjs release-assets/listing-screenshots/01-home-transparent.png release-assets/listing-screenshots/02-arrow-navigation-transparent.png release-assets/listing-screenshots/03-map-navigation-transparent.png",
     "pack": "npm run build && evenhub pack app.json dist -o apexline.ehpk"
   },
   "dependencies": {
