@@ -256,7 +256,9 @@ h1 {
   top: calc(100% + 10px);
   right: 0;
   z-index: 1000;
-  width: min(340px, calc(100vw - 32px));
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 110px));
+  overflow: auto;
   border: 1px solid rgba(243, 244, 239, 0.18);
   border-radius: 8px;
   padding: 14px;
@@ -783,7 +785,24 @@ h1 {
 
 .settings-grid {
   display: grid;
-  gap: 14px;
+  gap: 12px;
+}
+
+.settings-section {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(243, 244, 239, 0.1);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(243, 244, 239, 0.035);
+}
+
+.settings-section h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 1000;
+  letter-spacing: 0;
 }
 
 .setting-group {

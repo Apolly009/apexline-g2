@@ -1,4 +1,13 @@
-import { makeGuidanceSnapshot, makeIdleSnapshot, type GuidanceHazardAlert, type GuidanceSnapshot, type PositionSample, type SideRoadDisplayMode } from "./guidance";
+import {
+  makeGuidanceSnapshot,
+  makeIdleSnapshot,
+  type ArrowSpeedPlacement,
+  type GuidanceHazardAlert,
+  type GuidanceSnapshot,
+  type MapSpeedPlacement,
+  type PositionSample,
+  type SideRoadDisplayMode
+} from "./guidance";
 import { GlassDisplay, type GlassImuSample } from "./glasses";
 import {
   advanceBlitzerDistanceEstimate,
@@ -46,6 +55,8 @@ type AppState = {
   showControlHints: boolean;
   nightMode: boolean;
   arrowLayout: "left" | "bottom";
+  mapSpeedPlacement: MapSpeedPlacement;
+  arrowSpeedPlacement: ArrowSpeedPlacement;
   blitzerEnabled: boolean;
   blitzerAlert: BlitzerAlert | null;
   blitzerReportStatus: string;
@@ -189,6 +200,8 @@ const SPEED_DISPLAY_STORAGE_KEY = "apexline-speed-display";
 const CONTROL_HINTS_STORAGE_KEY = "apexline-control-hints";
 const NIGHT_MODE_STORAGE_KEY = "apexline-night-mode";
 const ARROW_LAYOUT_STORAGE_KEY = "apexline-arrow-layout";
+const MAP_SPEED_PLACEMENT_STORAGE_KEY = "apexline-map-speed-placement";
+const ARROW_SPEED_PLACEMENT_STORAGE_KEY = "apexline-arrow-speed-placement";
 const BLITZER_ENABLED_STORAGE_KEY = "apexline-blitzer-enabled";
 const EXPERIMENTAL_NOTICE_STORAGE_KEY = "apexline-experimental-notice-v1";
 const BLITZER_ALERT_TTL_MS = 8 * 60 * 1000;
@@ -220,6 +233,8 @@ const state: AppState = {
   showControlHints: loadControlHintsEnabled(),
   nightMode: loadNightModeEnabled(),
   arrowLayout: loadArrowLayout(),
+  mapSpeedPlacement: loadMapSpeedPlacement(),
+  arrowSpeedPlacement: loadArrowSpeedPlacement(),
   blitzerEnabled: loadBlitzerEnabled(),
   blitzerAlert: null,
   blitzerReportStatus: "No Blitzer alert",
@@ -768,7 +783,21 @@ function applyLaunchOptions(): void {
   const arrowLayout = params.get("arrowLayout");
   if (arrowLayout === "left" || arrowLayout === "bottom") {
     state.arrowLayout = arrowLayout;
+    state.arrowSpeedPlacement = normalizeArrowSpeedPlacement(state.arrowSpeedPlacement, state.arrowLayout);
     saveArrowLayout();
+    saveArrowSpeedPlacement();
+  }
+
+  const mapSpeedPlacement = params.get("mapSpeed");
+  if (mapSpeedPlacement === "left" || mapSpeedPlacement === "right") {
+    state.mapSpeedPlacement = mapSpeedPlacement;
+    saveMapSpeedPlacement();
+  }
+
+  const arrowSpeedPlacement = params.get("arrowSpeed");
+  if (arrowSpeedPlacement === "left" || arrowSpeedPlacement === "right" || arrowSpeedPlacement === "bottom") {
+    state.arrowSpeedPlacement = normalizeArrowSpeedPlacement(arrowSpeedPlacement, state.arrowLayout);
+    saveArrowSpeedPlacement();
   }
 
   if (params.has("blitzer")) {
@@ -1081,70 +1110,118 @@ function renderSettingsMenu(): string {
   return `
     <div class="settings-popover">
       <div class="settings-grid">
-        <div class="setting-group">
-          <span>Glasses view</span>
-          <div class="segmented-row" role="group" aria-label="Glasses guidance style">
-            <button class="view-mode ${state.guidanceView === "arrows" ? "active" : ""}" data-guidance-view="arrows" type="button">Arrows</button>
-            <button class="view-mode ${state.guidanceView === "map" ? "active" : ""}" data-guidance-view="map" type="button">Map</button>
+        <section class="settings-section">
+          <h3>Guidance</h3>
+          <div class="setting-group">
+            <span>Glasses view</span>
+            <div class="segmented-row" role="group" aria-label="Glasses guidance style">
+              <button class="view-mode ${state.guidanceView === "arrows" ? "active" : ""}" data-guidance-view="arrows" type="button">Arrows</button>
+              <button class="view-mode ${state.guidanceView === "map" ? "active" : ""}" data-guidance-view="map" type="button">Map</button>
+            </div>
           </div>
-        </div>
-        <div class="setting-group">
-          <span>Units</span>
-          <div class="segmented-row" role="group" aria-label="Distance units">
-            <button class="unit-mode ${state.unitSystem === "imperial" ? "active" : ""}" data-unit-system="imperial" type="button">Imperial</button>
-            <button class="unit-mode ${state.unitSystem === "metric" ? "active" : ""}" data-unit-system="metric" type="button">Metric</button>
+          <div class="setting-group">
+            <span>Units</span>
+            <div class="segmented-row" role="group" aria-label="Distance units">
+              <button class="unit-mode ${state.unitSystem === "imperial" ? "active" : ""}" data-unit-system="imperial" type="button">Imperial</button>
+              <button class="unit-mode ${state.unitSystem === "metric" ? "active" : ""}" data-unit-system="metric" type="button">Metric</button>
+            </div>
           </div>
-        </div>
-        <div class="setting-group experimental-setting">
-          <span>HUD heading <em class="experimental-chip">Experimental</em></span>
-          <div class="segmented-row" role="group" aria-label="HUD heading source">
-            <button class="heading-mode ${state.headingSource === "travel" ? "active" : ""}" data-heading-source="travel" type="button">Travel</button>
-            <button class="heading-mode ${state.headingSource === "phone" ? "active" : ""}" data-heading-source="phone" type="button">Phone compass</button>
-            <button class="heading-mode ${state.headingSource === "glasses" ? "active" : ""}" data-heading-source="glasses" type="button">G2 facing</button>
+        </section>
+
+        <section class="settings-section">
+          <h3>HUD layout</h3>
+          <label class="setting-toggle">
+            <input type="checkbox" data-speed-display ${state.showSpeed ? "checked" : ""} />
+            <span>Speed on glasses</span>
+          </label>
+          <label class="setting-toggle">
+            <input type="checkbox" data-night-mode ${state.nightMode ? "checked" : ""} />
+            <span>Night HUD</span>
+          </label>
+          <div class="setting-group">
+            <span>Arrow position</span>
+            <div class="segmented-row" role="group" aria-label="Arrow position">
+              <button class="view-mode ${state.arrowLayout === "left" ? "active" : ""}" data-arrow-layout="left" type="button">Left</button>
+              <button class="view-mode ${state.arrowLayout === "bottom" ? "active" : ""}" data-arrow-layout="bottom" type="button">Bottom</button>
+            </div>
           </div>
-          ${state.headingSource === "phone" || state.headingSource === "glasses" ? `
-            <button class="settings-action" data-enable-phone-heading type="button">Enable phone compass</button>
-            <span class="setting-note">${escapeHtml(headingStatusSummary())}</span>
-          ` : `<span class="setting-note">Uses GPS course or simulated route heading.</span>`}
-        </div>
-        <div class="setting-group">
-          <span>Road context</span>
-          <div class="segmented-row" role="group" aria-label="HUD road context">
-            <button class="view-mode ${state.sideRoadMode === "off" ? "active" : ""}" data-side-road-mode="off" type="button">Off</button>
-            <button class="view-mode ${state.sideRoadMode === "intersections" ? "active" : ""}" data-side-road-mode="intersections" type="button">Turns</button>
-            <button class="view-mode ${state.sideRoadMode === "larger" ? "active" : ""}" data-side-road-mode="larger" type="button">Larger roads</button>
+          <div class="setting-group">
+            <span>Map speed position</span>
+            <div class="segmented-row" role="group" aria-label="Map speed position">
+              <button class="view-mode ${state.mapSpeedPlacement === "left" ? "active" : ""}" data-map-speed-placement="left" type="button">Left</button>
+              <button class="view-mode ${state.mapSpeedPlacement === "right" ? "active" : ""}" data-map-speed-placement="right" type="button">Right</button>
+            </div>
           </div>
-        </div>
-        <label class="setting-toggle experimental-setting">
-          <input type="checkbox" data-dynamic-zoom ${state.dynamicZoom ? "checked" : ""} />
-          <span>Dynamic zoom <em class="experimental-chip">Experimental</em></span>
-        </label>
-        <label class="setting-toggle">
-          <input type="checkbox" data-speed-display ${state.showSpeed ? "checked" : ""} />
-          <span>Speed on glasses</span>
-        </label>
-        <label class="setting-toggle">
-          <input type="checkbox" data-night-mode ${state.nightMode ? "checked" : ""} />
-          <span>Night HUD</span>
-        </label>
-        <div class="setting-group">
-          <span>Arrow position</span>
-          <div class="segmented-row" role="group" aria-label="Arrow position">
-            <button class="view-mode ${state.arrowLayout === "left" ? "active" : ""}" data-arrow-layout="left" type="button">Left</button>
-            <button class="view-mode ${state.arrowLayout === "bottom" ? "active" : ""}" data-arrow-layout="bottom" type="button">Bottom</button>
+          <div class="setting-group">
+            <span>Arrow speed position</span>
+            <div class="segmented-row" role="group" aria-label="Arrow speed position">
+              ${arrowSpeedPlacementButtons()}
+            </div>
           </div>
-        </div>
-        <label class="setting-toggle">
-          <input type="checkbox" data-blitzer-enabled ${state.blitzerEnabled ? "checked" : ""} />
-          <span>Blitzer.de PRO bridge <em class="experimental-chip">Experimental</em></span>
-        </label>
-        <label class="setting-toggle">
-          <input type="checkbox" data-control-hints ${state.showControlHints ? "checked" : ""} />
-          <span>Glasses control hints</span>
-        </label>
+        </section>
+
+        <section class="settings-section">
+          <h3>Road context</h3>
+          <div class="setting-group">
+            <span>Side roads</span>
+            <div class="segmented-row" role="group" aria-label="HUD road context">
+              <button class="view-mode ${state.sideRoadMode === "off" ? "active" : ""}" data-side-road-mode="off" type="button">Off</button>
+              <button class="view-mode ${state.sideRoadMode === "intersections" ? "active" : ""}" data-side-road-mode="intersections" type="button">Turns</button>
+              <button class="view-mode ${state.sideRoadMode === "larger" ? "active" : ""}" data-side-road-mode="larger" type="button">Larger roads</button>
+            </div>
+          </div>
+          <label class="setting-toggle experimental-setting">
+            <input type="checkbox" data-dynamic-zoom ${state.dynamicZoom ? "checked" : ""} />
+            <span>Dynamic zoom <em class="experimental-chip">Experimental</em></span>
+          </label>
+        </section>
+
+        <section class="settings-section">
+          <h3>Experimental</h3>
+          <div class="setting-group experimental-setting">
+            <span>HUD heading <em class="experimental-chip">Experimental</em></span>
+            <div class="segmented-row" role="group" aria-label="HUD heading source">
+              <button class="heading-mode ${state.headingSource === "travel" ? "active" : ""}" data-heading-source="travel" type="button">Travel</button>
+              <button class="heading-mode ${state.headingSource === "phone" ? "active" : ""}" data-heading-source="phone" type="button">Phone compass</button>
+              <button class="heading-mode ${state.headingSource === "glasses" ? "active" : ""}" data-heading-source="glasses" type="button">G2 facing</button>
+            </div>
+            ${state.headingSource === "phone" || state.headingSource === "glasses" ? `
+              <button class="settings-action" data-enable-phone-heading type="button">Enable phone compass</button>
+              <span class="setting-note">${escapeHtml(headingStatusSummary())}</span>
+            ` : `<span class="setting-note">Uses GPS course or simulated route heading.</span>`}
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <h3>Alerts</h3>
+          <label class="setting-toggle">
+            <input type="checkbox" data-blitzer-enabled ${state.blitzerEnabled ? "checked" : ""} />
+            <span>Blitzer.de PRO bridge <em class="experimental-chip">Experimental</em></span>
+          </label>
+          <label class="setting-toggle">
+            <input type="checkbox" data-control-hints ${state.showControlHints ? "checked" : ""} />
+            <span>Glasses control hints</span>
+          </label>
+        </section>
       </div>
     </div>
   `;
+}
+
+function arrowSpeedPlacementButtons(): string {
+  const options: Array<{ value: ArrowSpeedPlacement; label: string }> = state.arrowLayout === "left"
+    ? [
+      { value: "right", label: "Right" },
+      { value: "bottom", label: "Bottom" }
+    ]
+    : [
+      { value: "left", label: "Left" },
+      { value: "right", label: "Right" }
+    ];
+
+  return options.map((option) =>
+    `<button class="view-mode ${effectiveArrowSpeedPlacement() === option.value ? "active" : ""}" data-arrow-speed-placement="${option.value}" type="button">${option.label}</button>`
+  ).join("");
 }
 
 function renderFavoritesManager(): string {
@@ -1530,7 +1607,33 @@ function bindEvents(): void {
       const layout = button.dataset.arrowLayout;
       if (layout === "left" || layout === "bottom") {
         state.arrowLayout = layout;
+        state.arrowSpeedPlacement = normalizeArrowSpeedPlacement(state.arrowSpeedPlacement, state.arrowLayout);
         saveArrowLayout();
+        saveArrowSpeedPlacement();
+        void updateGlass();
+        render();
+      }
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-map-speed-placement]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const placement = button.dataset.mapSpeedPlacement;
+      if (placement === "left" || placement === "right") {
+        state.mapSpeedPlacement = placement;
+        saveMapSpeedPlacement();
+        void updateGlass();
+        render();
+      }
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-arrow-speed-placement]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const placement = button.dataset.arrowSpeedPlacement;
+      if (placement === "left" || placement === "right" || placement === "bottom") {
+        state.arrowSpeedPlacement = normalizeArrowSpeedPlacement(placement, state.arrowLayout);
+        saveArrowSpeedPlacement();
         void updateGlass();
         render();
       }
@@ -2171,6 +2274,38 @@ function loadArrowLayout(): AppState["arrowLayout"] {
 
 function saveArrowLayout(): void {
   window.localStorage.setItem(ARROW_LAYOUT_STORAGE_KEY, state.arrowLayout);
+}
+
+function loadMapSpeedPlacement(): MapSpeedPlacement {
+  return window.localStorage.getItem(MAP_SPEED_PLACEMENT_STORAGE_KEY) === "left" ? "left" : "right";
+}
+
+function saveMapSpeedPlacement(): void {
+  window.localStorage.setItem(MAP_SPEED_PLACEMENT_STORAGE_KEY, state.mapSpeedPlacement);
+}
+
+function loadArrowSpeedPlacement(): ArrowSpeedPlacement {
+  const saved = window.localStorage.getItem(ARROW_SPEED_PLACEMENT_STORAGE_KEY);
+  return normalizeArrowSpeedPlacement(saved, loadArrowLayout());
+}
+
+function saveArrowSpeedPlacement(): void {
+  window.localStorage.setItem(ARROW_SPEED_PLACEMENT_STORAGE_KEY, state.arrowSpeedPlacement);
+}
+
+function normalizeArrowSpeedPlacement(
+  placement: string | null | undefined,
+  arrowLayout: AppState["arrowLayout"]
+): ArrowSpeedPlacement {
+  if (arrowLayout === "left") {
+    return placement === "bottom" ? "bottom" : "right";
+  }
+
+  return placement === "left" ? "left" : "right";
+}
+
+function effectiveArrowSpeedPlacement(): ArrowSpeedPlacement {
+  return normalizeArrowSpeedPlacement(state.arrowSpeedPlacement, state.arrowLayout);
 }
 
 function loadBlitzerEnabled(): boolean {
@@ -3672,7 +3807,9 @@ function withDisplayPreferences(snapshot: GuidanceSnapshot): GuidanceSnapshot {
     showSpeed: state.showSpeed,
     showControlHints: state.showControlHints,
     nightMode: state.nightMode,
-    arrowLayout: state.arrowLayout
+    arrowLayout: state.arrowLayout,
+    mapSpeedPlacement: state.mapSpeedPlacement,
+    arrowSpeedPlacement: effectiveArrowSpeedPlacement()
   };
 }
 

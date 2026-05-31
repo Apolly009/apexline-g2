@@ -40,6 +40,7 @@ export type RouteResult = {
   durationSeconds: number;
   steps: RouteStep[];
   geometry: Coordinate[];
+  contextRoadBranches: IntersectionBranch[];
 };
 
 type Fetcher = typeof fetch;
@@ -106,12 +107,16 @@ type RoadWayGeometry = {
   roadClass: IntersectionBranch["roadClass"];
 };
 
-const SIDE_ROAD_RADIUS_METERS = 92;
+const SIDE_ROAD_RADIUS_METERS = 120;
 const SIDE_ROAD_MAX_LENGTH_METERS = 170;
-const SIDE_ROAD_ROUTE_MATCH_DEGREES = 18;
+const SIDE_ROAD_ROUTE_MATCH_DEGREES = 26;
 const SIDE_ROAD_JUNCTION_TOLERANCE_METERS = 58;
 const SIDE_ROAD_DUPLICATE_DEGREES = 10;
 const MAX_SIDE_ROAD_BRANCHES = 6;
+const ROUTE_CONTEXT_RADIUS_METERS = 135;
+const ROUTE_CONTEXT_SAMPLE_SPACING_METERS = 80;
+const ROUTE_CONTEXT_MAX_SAMPLE_POINTS = 220;
+const MAX_ROUTE_CONTEXT_BRANCHES = 220;
 
 type OsrmResponse = {
   code?: string;
@@ -222,6 +227,7 @@ export async function fetchDrivingRoute(
   const steps = route.legs?.flatMap((leg) => leg.steps ?? []) ?? [];
   const routeSteps = steps.map(toRouteStep);
   await attachIntersectionBranches(routeSteps, geometry, fetcher);
+  const contextRoadBranches = await fetchRouteContextBranches(geometry, fetcher);
 
   return {
     origin,
@@ -230,7 +236,8 @@ export async function fetchDrivingRoute(
     distanceMeters: route.distance ?? 0,
     durationSeconds: route.duration ?? 0,
     geometry,
-    steps: routeSteps
+    steps: routeSteps,
+    contextRoadBranches
   };
 }
 
@@ -424,7 +431,96 @@ async function fetchIntersectionRoadWays(
     "out body;"
   ].join("");
 
-  const body = await fetchOverpass(query, fetcher);
+  return roadWaysFromOverpass(await fetchOverpass(query, fetcher));
+}
+
+async function fetchRouteContextBranches(geometry: Coordinate[], fetcher: Fetcher): Promise<IntersectionBranch[]> {
+  const samples = routeContextSamplePoints(geometry);
+  if (samples.length === 0) {
+    return [];
+  }
+
+  const wayQueries = samples.map((sample) =>
+    `way(around:${ROUTE_CONTEXT_RADIUS_METERS},${sample.lat},${sample.lon})` +
+    '["highway"]["highway"!~"^(footway|cycleway|path|steps|bridleway|pedestrian|service|track|corridor|elevator|platform|construction)$"];'
+  );
+  const query = [
+    "[out:json][timeout:7];",
+    "(",
+    ...wayQueries,
+    ");",
+    "(._;>;);",
+    "out body;"
+  ].join("");
+
+  try {
+    const roadWays = roadWaysFromOverpass(await fetchOverpass(query, fetcher));
+    const candidates: CandidateIntersectionBranch[] = [];
+    for (const sample of samples) {
+      const routeBearings = routeBearingsAtManeuver(geometry, sample);
+      for (const roadWay of roadWays) {
+        if (roadWay.roadClass === "minor") {
+          continue;
+        }
+        candidates.push(...branchesForWay(roadWay.id, roadWay.points, sample, routeBearings, roadWay.roadClass));
+      }
+    }
+
+    return dedupeRouteContextBranches(candidates).map(({ points, roadClass }) => ({ points, roadClass }));
+  } catch {
+    return [];
+  }
+}
+
+function routeContextSamplePoints(geometry: Coordinate[]): Coordinate[] {
+  const length = routeGeometryLengthMeters(geometry);
+  if (geometry.length < 2 || length <= 0) {
+    return [];
+  }
+
+  const sampleCount = Math.min(ROUTE_CONTEXT_MAX_SAMPLE_POINTS, Math.max(1, Math.ceil(length / ROUTE_CONTEXT_SAMPLE_SPACING_METERS)));
+  const spacing = length / sampleCount;
+  const samples: Coordinate[] = [];
+
+  for (let index = 0; index <= sampleCount; index += 1) {
+    samples.push(sampleRouteGeometryAtDistance(geometry, Math.min(length, index * spacing)));
+  }
+
+  return samples;
+}
+
+function routeGeometryLengthMeters(geometry: Coordinate[]): number {
+  let total = 0;
+  for (let index = 1; index < geometry.length; index += 1) {
+    total += distanceMeters(geometry[index - 1], geometry[index]);
+  }
+  return total;
+}
+
+function sampleRouteGeometryAtDistance(geometry: Coordinate[], targetMeters: number): Coordinate {
+  if (geometry.length === 0) {
+    return { lat: 0, lon: 0 };
+  }
+
+  let traveled = 0;
+  for (let index = 1; index < geometry.length; index += 1) {
+    const start = geometry[index - 1];
+    const end = geometry[index];
+    const segmentMeters = distanceMeters(start, end);
+    if (traveled + segmentMeters >= targetMeters) {
+      const t = segmentMeters === 0 ? 0 : (targetMeters - traveled) / segmentMeters;
+      return {
+        lat: start.lat + (end.lat - start.lat) * t,
+        lon: start.lon + (end.lon - start.lon) * t
+      };
+    }
+    traveled += segmentMeters;
+  }
+
+  return geometry[geometry.length - 1];
+}
+
+function roadWaysFromOverpass(body: OverpassResponse): RoadWayGeometry[] {
   const elements = body.elements ?? [];
   const nodes = new Map<number, Coordinate>();
   const ways: OverpassWay[] = [];
@@ -437,27 +533,68 @@ async function fetchIntersectionRoadWays(
     }
   }
 
-  const roadWays: RoadWayGeometry[] = [];
-
-  for (const way of ways) {
+  return ways.flatMap((way) => {
     const roadClass = roadClassForHighway(way.tags?.highway);
     const wayPoints = (way.nodes ?? [])
       .map((nodeId) => nodes.get(nodeId))
       .filter((point): point is Coordinate => Boolean(point));
-    if (wayPoints.length < 2) {
+
+    return roadClass && wayPoints.length >= 2
+      ? [{ id: way.id, points: wayPoints, roadClass }]
+      : [];
+  });
+}
+
+function dedupeRouteContextBranches(branches: CandidateIntersectionBranch[]): CandidateIntersectionBranch[] {
+  const selected: CandidateIntersectionBranch[] = [];
+  const sorted = [...branches].sort((a, b) =>
+    roadClassScore(b.roadClass) - roadClassScore(a.roadClass) ||
+    b.lengthMeters - a.lengthMeters
+  );
+
+  for (const branch of sorted) {
+    const start = branch.points[0];
+    if (!start) {
+      continue;
+    }
+    const duplicate = selected.some((selectedBranch) => {
+      const selectedStart = selectedBranch.points[0];
+      if (!selectedStart) {
+        return false;
+      }
+
+      const sameWay = branch.wayId === selectedBranch.wayId;
+      const sameBearing = angularDistanceDegrees(branch.bearingDegrees, selectedBranch.bearingDegrees) <= 14;
+      const closeStart = distanceMeters(start, selectedStart) <= (sameWay ? 90 : 34);
+      const sameShape = polylineEndpointDistance(branch.points, selectedBranch.points) <= 44;
+      return sameBearing && (closeStart || sameShape);
+    });
+    if (duplicate) {
       continue;
     }
 
-    if (roadClass) {
-      roadWays.push({
-        id: way.id,
-        points: wayPoints,
-        roadClass
-      });
+    selected.push(branch);
+    if (selected.length >= MAX_ROUTE_CONTEXT_BRANCHES) {
+      break;
     }
   }
 
-  return roadWays;
+  return selected;
+}
+
+function polylineEndpointDistance(a: Coordinate[], b: Coordinate[]): number {
+  const aStart = a[0];
+  const aEnd = a[a.length - 1];
+  const bStart = b[0];
+  const bEnd = b[b.length - 1];
+  if (!aStart || !aEnd || !bStart || !bEnd) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return Math.min(
+    distanceMeters(aStart, bStart) + distanceMeters(aEnd, bEnd),
+    distanceMeters(aStart, bEnd) + distanceMeters(aEnd, bStart)
+  );
 }
 
 function intersectionBranchesForStep(
