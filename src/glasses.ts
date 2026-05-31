@@ -688,7 +688,9 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
   context.fillStyle = HUD_TEXT;
   context.font = `bold 26px ${HUD_FONT_ROUNDED}`;
   context.textAlign = "left";
-  context.fillText(formatPrimaryDistance(snapshot.primary), 42, 104);
+  const distanceText = formatPrimaryDistance(snapshot.primary);
+  drawTextBackplate(context, distanceText, 42, 104);
+  context.fillText(distanceText, 42, 104);
   context.strokeStyle = "rgba(247, 210, 99, 0.82)";
   context.lineWidth = 2.2;
   context.beginPath();
@@ -699,18 +701,24 @@ function drawMapImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnaps
   context.fillStyle = HUD_PRIMARY;
   context.font = `bold 16px ${HUD_FONT_SHARP}`;
   context.textAlign = "right";
-  context.fillText(formatPrimaryAction(snapshot.primary, snapshot.arrow), 534, 152);
+  const actionText = formatPrimaryAction(snapshot.primary, snapshot.arrow);
+  drawTextBackplate(context, actionText, 534, 152);
+  context.fillText(actionText, 534, 152);
   drawHudSpeedValue(context, snapshot, 534, 202, "right");
 
   context.fillStyle = HUD_MUTED;
   context.font = `bold 11px ${HUD_FONT_SHARP}`;
   context.textAlign = "left";
-  context.fillText(trimImageLine(snapshot.roadName || snapshot.secondary, 22), 42, 252);
+  const roadText = trimImageLine(snapshot.roadName || snapshot.secondary, 22);
+  drawTextBackplate(context, roadText, 42, 252);
+  context.fillText(roadText, 42, 252);
 
   context.fillStyle = HUD_PRIMARY;
   context.font = `bold 13px ${HUD_FONT_SHARP}`;
   context.textAlign = "right";
-  context.fillText(trimImageLine(snapshot.tertiary.replace(" | ", "  "), 24), 534, 252);
+  const tertiaryText = trimImageLine(snapshot.tertiary.replace(" | ", "  "), 24);
+  drawTextBackplate(context, tertiaryText, 534, 252);
+  context.fillText(tertiaryText, 534, 252);
 }
 
 function drawNightArrowImage(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot): void {
@@ -1397,7 +1405,31 @@ function drawHudSpeedValue(
   context.fillStyle = HUD_PRIMARY;
   context.font = `bold 18px ${HUD_FONT_SHARP}`;
   context.textAlign = align;
+  drawTextBackplate(context, snapshot.speedLabel, x, y);
   context.fillText(snapshot.speedLabel, x, y);
+}
+
+function drawTextBackplate(context: CanvasRenderingContext2D, text: string, x: number, y: number): void {
+  if (!text) {
+    return;
+  }
+
+  const metrics = context.measureText(text);
+  const fontSize = Number(context.font.match(/(\d+(?:\.\d+)?)px/)?.[1] ?? 14);
+  const padX = 4;
+  const padY = 2;
+  const left = context.textAlign === "right"
+    ? x - metrics.width - padX
+    : context.textAlign === "center"
+      ? x - metrics.width / 2 - padX
+      : x - padX;
+  const top = y - fontSize * 0.82 - padY;
+
+  context.save();
+  context.fillStyle = "rgba(0, 0, 0, 0.62)";
+  roundRect(context, left, top, metrics.width + padX * 2, fontSize + padY * 2, 4);
+  context.fill();
+  context.restore();
 }
 
 function drawRouteCue(
@@ -1621,11 +1653,11 @@ function drawSideRoadBranches(
 
     context.strokeStyle = mapMode ? "rgba(221, 255, 227, 0.05)" : "rgba(221, 255, 227, 0.09)";
     context.lineWidth = sideRoadWidth(branch.roadClass, mapMode) + (mapMode ? 5 : 4);
-    drawPath(context, points);
+    drawSmoothPath(context, points);
 
     context.strokeStyle = sideRoadColor(branch.roadClass, mapMode);
     context.lineWidth = sideRoadWidth(branch.roadClass, mapMode);
-    drawPath(context, points);
+    drawSmoothPath(context, points);
   }
 }
 
@@ -1646,22 +1678,22 @@ function identityPreviewTransform(point: { x: number; y: number }): { x: number;
 
 function sideRoadWidth(roadClass: "major" | "medium" | "minor", mapMode: boolean): number {
   if (roadClass === "major") {
-    return mapMode ? 6 : 7;
+    return mapMode ? 7 : 8;
   }
   if (roadClass === "medium") {
-    return mapMode ? 4.5 : 5.5;
+    return mapMode ? 5.6 : 6.4;
   }
-  return mapMode ? 3 : 4;
+  return mapMode ? 3.8 : 4.8;
 }
 
 function sideRoadColor(roadClass: "major" | "medium" | "minor", mapMode: boolean): string {
   if (roadClass === "major") {
-    return mapMode ? "rgba(130, 170, 141, 0.34)" : "rgba(130, 170, 141, 0.42)";
+    return mapMode ? "rgba(130, 170, 141, 0.42)" : "rgba(130, 170, 141, 0.5)";
   }
   if (roadClass === "medium") {
-    return mapMode ? "rgba(130, 170, 141, 0.26)" : "rgba(130, 170, 141, 0.34)";
+    return mapMode ? "rgba(130, 170, 141, 0.34)" : "rgba(130, 170, 141, 0.42)";
   }
-  return mapMode ? "rgba(130, 170, 141, 0.2)" : "rgba(130, 170, 141, 0.28)";
+  return mapMode ? "rgba(130, 170, 141, 0.23)" : "rgba(130, 170, 141, 0.3)";
 }
 
 function drawVehicleMarker(context: CanvasRenderingContext2D, x: number, y: number): void {
@@ -1722,19 +1754,6 @@ function drawAlert(context: CanvasRenderingContext2D, snapshot: GuidanceSnapshot
   context.fillStyle = HUD_MUTED;
   context.font = "18px system-ui, sans-serif";
   context.fillText("Check route on phone", 288, 202);
-}
-
-function drawPath(context: CanvasRenderingContext2D, points: Array<[number, number]>): void {
-  if (points.length < 2) {
-    return;
-  }
-
-  context.beginPath();
-  context.moveTo(points[0][0], points[0][1]);
-  for (const point of points.slice(1)) {
-    context.lineTo(point[0], point[1]);
-  }
-  context.stroke();
 }
 
 function drawSmoothPath(context: CanvasRenderingContext2D, points: Array<[number, number]>): void {

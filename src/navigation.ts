@@ -106,9 +106,10 @@ type RoadWayGeometry = {
   roadClass: IntersectionBranch["roadClass"];
 };
 
-const SIDE_ROAD_RADIUS_METERS = 92;
+const SIDE_ROAD_RADIUS_METERS = 120;
 const SIDE_ROAD_MAX_LENGTH_METERS = 170;
-const SIDE_ROAD_ROUTE_MATCH_DEGREES = 18;
+const SIDE_ROAD_ROUTE_MATCH_DEGREES = 26;
+const SIDE_ROAD_JUNCTION_TOLERANCE_METERS = 58;
 const SIDE_ROAD_DUPLICATE_DEGREES = 10;
 const MAX_SIDE_ROAD_BRANCHES = 6;
 
@@ -567,7 +568,7 @@ function branchesForWay(
     }
   }
 
-  if (junctionIndex < 0 || nearestMeters > 42) {
+  if (junctionIndex < 0 || nearestMeters > SIDE_ROAD_JUNCTION_TOLERANCE_METERS) {
     return [];
   }
 
