@@ -273,25 +273,31 @@ function routePreview(
     return [];
   }
 
-  const nearestIndex = nearestGeometryIndex(geometry, current);
-  const points = [current, ...geometry.slice(nearestIndex, nearestIndex + 30)];
+  const scale = previewScaleMeters(lookaheadMeters);
+  const startMeters = distanceAlongGeometry(geometry, current);
+  const routeLength = geometryLengthMeters(geometry);
+  const sampleMeters = clamp(scale.forward / 34, 7, 18);
+  const endMeters = Math.min(routeLength, startMeters + scale.forward * 0.98);
+  const points = [current];
+  let nextMeters = Math.min(routeLength, startMeters + sampleMeters);
+
+  while (nextMeters < endMeters) {
+    points.push(sampleGeometryAtDistance(geometry, nextMeters));
+    nextMeters += sampleMeters;
+  }
+
+  if (endMeters > startMeters) {
+    points.push(sampleGeometryAtDistance(geometry, endMeters));
+  }
+
   const preview: RoutePreviewPoint[] = [];
-  let traveledMeters = 0;
 
-  for (let index = 0; index < points.length; index += 1) {
-    if (index > 0) {
-      traveledMeters += distanceMeters(points[index - 1], points[index]);
-    }
-
-    if (traveledMeters > lookaheadMeters * 1.35) {
-      break;
-    }
-
-    const local = localMeters(current, points[index]);
+  for (const point of points) {
+    const local = localMeters(current, point);
     const rotated = rotateForHeading(local.x, local.y, headingDegrees);
     preview.push({
-      x: clamp(rotated.x / 320, -1, 1),
-      y: clamp(rotated.y / Math.max(lookaheadMeters, 220), -0.15, 1)
+      x: rotated.x / scale.lateral,
+      y: rotated.y / scale.forward
     });
   }
 
@@ -304,41 +310,165 @@ function sideRoadPreview(
   headingDegrees: number,
   lookaheadMeters: number
 ): SideRoadPreviewBranch[] {
+  const scale = previewScaleMeters(lookaheadMeters);
   return branches
     .map((branch) => {
-      const points = branch.points.map((point) => {
+      const rawPoints = branch.points.map((point) => {
         const local = localMeters(current, point);
         const rotated = rotateForHeading(local.x, local.y, headingDegrees);
         return {
-          x: clamp(rotated.x / 320, -1.15, 1.15),
-          y: clamp(rotated.y / Math.max(lookaheadMeters, 220), -0.2, 1.1)
+          x: rotated.x / scale.lateral,
+          y: rotated.y / scale.forward
         };
       });
+      const junction = rawPoints[0];
+      if (!junction || junction.y < -0.08 || junction.y > 0.98 || Math.abs(junction.x) > 1.04) {
+        return null;
+      }
+
+      const points = rawPoints.map((point) => ({
+        x: clamp(point.x, -1.15, 1.15),
+        y: clamp(point.y, -0.18, 1.04)
+      }));
 
       return {
         roadClass: branch.roadClass,
-        points: simplifyPreview(points)
+        points: ensureMinimumBranchLength(simplifyPreview(points), branch.roadClass)
       };
     })
+    .filter((branch): branch is SideRoadPreviewBranch => Boolean(branch))
     .filter((branch) =>
       branch.points.length > 1 &&
       branch.points.some((point) => point.y >= -0.08 && point.y <= 1.04 && Math.abs(point.x) <= 1.02)
     );
 }
 
-function nearestGeometryIndex(geometry: Coordinate[], current: Coordinate): number {
-  let nearestIndex = 0;
-  let nearest = Number.POSITIVE_INFINITY;
+function ensureMinimumBranchLength(
+  points: RoutePreviewPoint[],
+  roadClass: IntersectionBranch["roadClass"]
+): RoutePreviewPoint[] {
+  if (points.length < 2) {
+    return points;
+  }
 
-  for (let index = 0; index < geometry.length; index += 1) {
-    const distance = distanceMeters(current, geometry[index]);
-    if (distance < nearest) {
-      nearest = distance;
-      nearestIndex = index;
+  const minimumLength = roadClass === "major" ? 0.22 : roadClass === "medium" ? 0.18 : 0.14;
+  const currentLength = previewPolylineLength(points);
+  if (currentLength >= minimumLength) {
+    return points;
+  }
+
+  const start = points[0];
+  const end = points[points.length - 1];
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 0.001) {
+    return points;
+  }
+
+  return [
+    ...points.slice(0, -1),
+    {
+      x: clamp(start.x + (dx / length) * minimumLength, -1.15, 1.15),
+      y: clamp(start.y + (dy / length) * minimumLength, -0.18, 1.04)
+    }
+  ];
+}
+
+function previewPolylineLength(points: RoutePreviewPoint[]): number {
+  let length = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    length += Math.hypot(points[index].x - points[index - 1].x, points[index].y - points[index - 1].y);
+  }
+  return length;
+}
+
+function previewScaleMeters(lookaheadMeters: number): { forward: number; lateral: number } {
+  const forward = Math.max(180, lookaheadMeters);
+  return {
+    forward,
+    lateral: clamp(forward * 0.56, 135, 390)
+  };
+}
+
+function geometryLengthMeters(geometry: Coordinate[]): number {
+  let total = 0;
+  for (let index = 1; index < geometry.length; index += 1) {
+    total += distanceMeters(geometry[index - 1], geometry[index]);
+  }
+  return total;
+}
+
+function distanceAlongGeometry(geometry: Coordinate[], current: Coordinate): number {
+  if (geometry.length < 2) {
+    return 0;
+  }
+
+  let nearestSegment = 0;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  let nearestT = 0;
+  for (let index = 0; index < geometry.length - 1; index += 1) {
+    const projection = projectToSegment(current, geometry[index], geometry[index + 1]);
+    if (projection.distanceMeters < nearestDistance) {
+      nearestDistance = projection.distanceMeters;
+      nearestSegment = index;
+      nearestT = projection.t;
     }
   }
 
-  return nearestIndex;
+  let distance = 0;
+  for (let index = 1; index <= nearestSegment; index += 1) {
+    distance += distanceMeters(geometry[index - 1], geometry[index]);
+  }
+  return distance + distanceMeters(geometry[nearestSegment], geometry[nearestSegment + 1]) * nearestT;
+}
+
+function sampleGeometryAtDistance(geometry: Coordinate[], targetMeters: number): Coordinate {
+  if (geometry.length === 0) {
+    return { lat: 0, lon: 0 };
+  }
+
+  let traveled = 0;
+  for (let index = 1; index < geometry.length; index += 1) {
+    const start = geometry[index - 1];
+    const end = geometry[index];
+    const segmentMeters = distanceMeters(start, end);
+    if (traveled + segmentMeters >= targetMeters) {
+      const t = segmentMeters === 0 ? 0 : (targetMeters - traveled) / segmentMeters;
+      return {
+        lat: start.lat + (end.lat - start.lat) * t,
+        lon: start.lon + (end.lon - start.lon) * t
+      };
+    }
+    traveled += segmentMeters;
+  }
+
+  return geometry[geometry.length - 1];
+}
+
+function projectToSegment(
+  current: Coordinate,
+  start: Coordinate,
+  end: Coordinate
+): { distanceMeters: number; t: number } {
+  const metersPerDegreeLat = 111320;
+  const metersPerDegreeLon = metersPerDegreeLat * Math.cos(toRadians(current.lat));
+  const startX = (start.lon - current.lon) * metersPerDegreeLon;
+  const startY = (start.lat - current.lat) * metersPerDegreeLat;
+  const endX = (end.lon - current.lon) * metersPerDegreeLon;
+  const endY = (end.lat - current.lat) * metersPerDegreeLat;
+  const segmentX = endX - startX;
+  const segmentY = endY - startY;
+  const lengthSquared = segmentX * segmentX + segmentY * segmentY;
+  const t = lengthSquared === 0
+    ? 0
+    : Math.max(0, Math.min(1, -(startX * segmentX + startY * segmentY) / lengthSquared));
+  const nearestX = startX + segmentX * t;
+  const nearestY = startY + segmentY * t;
+  return {
+    distanceMeters: Math.hypot(nearestX, nearestY),
+    t
+  };
 }
 
 function localMeters(origin: Coordinate, point: Coordinate): { x: number; y: number } {
@@ -361,12 +491,12 @@ function rotateForHeading(x: number, y: number, headingDegrees: number): { x: nu
 }
 
 function simplifyPreview(points: RoutePreviewPoint[]): RoutePreviewPoint[] {
-  if (points.length <= 14) {
+  if (points.length <= 32) {
     return points;
   }
 
   const simplified: RoutePreviewPoint[] = [];
-  const stride = Math.ceil(points.length / 14);
+  const stride = Math.ceil(points.length / 32);
   for (let index = 0; index < points.length; index += stride) {
     simplified.push(points[index]);
   }
