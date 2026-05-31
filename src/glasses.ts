@@ -265,9 +265,10 @@ export class GlassDisplay {
       return;
     }
 
-    await this.updateFallbackText(fallbackContent);
+    await this.updateFallbackText("");
 
     const tiles = renderGlassImageTiles(snapshot, fallbackContent);
+    let successfulTiles = 0;
     for (const tile of tiles) {
       const result = await bridge.updateImageRawData(
         new ImageRawDataUpdate({
@@ -277,9 +278,15 @@ export class GlassDisplay {
         })
       );
       console.info("[GlassDisplay] updateImageRawData", tile.name, result);
-      if (!ImageRawDataUpdateResult.isSuccess(result)) {
+      if (ImageRawDataUpdateResult.isSuccess(result)) {
+        successfulTiles += 1;
+      } else {
         console.info("[GlassDisplay] image update did not succeed", tile.name, result);
       }
+    }
+
+    if (tiles.length === 0 || successfulTiles === 0) {
+      await this.updateFallbackText(fallbackContent);
     }
   }
 

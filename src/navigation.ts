@@ -360,7 +360,7 @@ async function attachIntersectionBranches(
 ): Promise<void> {
   const candidates = steps
     .filter((step) => shouldFetchIntersectionBranches(step, geometry))
-    .slice(0, 18);
+    .slice(0, 36);
 
   if (candidates.length === 0) {
     return;
@@ -380,8 +380,12 @@ async function attachIntersectionBranches(
 
 function shouldFetchIntersectionBranches(step: RouteStep, geometry: Coordinate[]): boolean {
   const type = step.maneuverType;
-  if (type === "depart" || type === "arrive" || type === "continue") {
+  if (type === "depart" || type === "arrive") {
     return hasAmbiguousContinueGeometry(step, geometry);
+  }
+
+  if (type === "continue") {
+    return true;
   }
 
   if (["turn", "end of road", "fork", "off ramp", "on ramp", "merge", "roundabout", "rotary"].includes(type)) {
@@ -647,7 +651,7 @@ function matchesRoutePath(bearing: number, routeBearings: RouteBearings): boolea
   const outgoingMatch = routeBearings.outgoing != null &&
     angularDistanceDegrees(bearing, routeBearings.outgoing) <= SIDE_ROAD_ROUTE_MATCH_DEGREES;
   const backtrackMatch = routeBearings.incoming != null &&
-    angularDistanceDegrees(bearing, normalizeDegrees(routeBearings.incoming + 180)) <= SIDE_ROAD_ROUTE_MATCH_DEGREES;
+    angularDistanceDegrees(bearing, routeBearings.incoming) <= SIDE_ROAD_ROUTE_MATCH_DEGREES;
   return outgoingMatch || backtrackMatch;
 }
 
