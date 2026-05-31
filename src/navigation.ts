@@ -359,7 +359,7 @@ async function attachIntersectionBranches(
 ): Promise<void> {
   const candidates = steps
     .filter((step) => shouldFetchIntersectionBranches(step, geometry))
-    .slice(0, 18);
+    .slice(0, 36);
 
   if (candidates.length === 0) {
     return;
@@ -379,8 +379,12 @@ async function attachIntersectionBranches(
 
 function shouldFetchIntersectionBranches(step: RouteStep, geometry: Coordinate[]): boolean {
   const type = step.maneuverType;
-  if (type === "depart" || type === "arrive" || type === "continue") {
+  if (type === "depart" || type === "arrive") {
     return false;
+  }
+
+  if (type === "continue") {
+    return true;
   }
 
   if (["turn", "end of road", "fork", "off ramp", "on ramp", "merge", "roundabout", "rotary"].includes(type)) {
